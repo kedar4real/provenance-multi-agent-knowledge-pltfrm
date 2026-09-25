@@ -758,6 +758,7 @@ name = "provenance"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "langgraph" },
     { name = "mcp" },
     { name = "openai" },
@@ -776,6 +777,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "langgraph", specifier = ">=0.6" },
     { name = "mcp", specifier = ">=1.13" },
     { name = "openai", specifier = ">=1.99" },
