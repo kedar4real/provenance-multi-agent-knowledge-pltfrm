@@ -1,0 +1,38 @@
+[project]
+name = "provenance"
+version = "0.1.0"
+description = "Secure multi-agent knowledge platform: supervisor/worker agents, hybrid RAG, calibrated verification, MCP."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "openai>=1.99",
+    "python-dotenv>=1.0",
+    "pydantic>=2.9",
+    "langgraph>=0.6",
+    "mcp>=1.13",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13",
+    "mypy>=1.18",
+    "pytest>=8.4",
+    "pytest-asyncio>=1.2",
+    "pre-commit>=4.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
