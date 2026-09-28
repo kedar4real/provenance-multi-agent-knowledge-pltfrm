@@ -54,3 +54,27 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 ### Secret hygiene
 - `.gitignore` covering `.env` was the first file written, before any key existed on disk. gitleaks runs as a pre-commit hook and in CI.
+
+## LLM provider layer (M2a)
+
+### One adapter class for every provider, Claude included
+- **Picked:** a single `OpenAICompatProvider`. Gemini, Groq, Mistral, OpenRouter and Ollama Cloud all expose the OpenAI chat-completions API, and so does Anthropic (`https://api.anthropic.com/v1/`), so Claude is a config entry rather than a separate backend.
+- **Why:** one error-mapping path to test. Vendor differences (Gemini wraps errors in a list; Groq signals rate limits with a `retry-after` header, Gemini with a `RetryInfo` body) are normalized into three exceptions: `RateLimited(retry_after_s)`, `ProviderUnavailable` (retryable) and `ProviderRejected(status)` (not retryable).
+
+### SDK retries disabled
+- The `openai` SDK retries 429s silently by default. That would hide rate limits from the router and spend free-tier quota twice. `max_retries=0`; the router owns every retry and failover decision.
+
+### Circuit breakers per provider+model, auth per provider
+- **Why:** free-tier quotas and overloads are per model (Gemini's 429 names the model; 3.5-flash returned 503 while 3.1-flash-lite was healthy). A per-provider breaker let one overloaded model block every model from that vendor. A 401/403 means the key itself is bad, so that blocks the whole provider for an hour.
+
+### Rejections fall back instead of failing the request
+- A 400 is often model-specific (e.g. "logprobs not supported with this model"), so the router moves to the next choice without retrying the same one.
+
+### Record/replay response cache
+- Responses are stored under a SHA-256 of (role, full request). `read_write` makes eval re-runs free; `replay` never calls a model and raises `CacheMiss`, which proves a run is fully reproducible.
+
+### Model picks by measured latency, not by version number
+- Measured on this free-tier key: `gemini-3.5-flash-lite` took 42-90s per request (thinking disabled made no difference), `gemini-3.5-flash` and `gemini-3-flash-preview` returned 503, the 2.5 models returned 404, and Pro returned 429 (no free quota). `gemini-3.1-flash-lite` answered in ~1.5s and `gemini-3.6-flash` in ~2s, so those are the small and large tiers. Gemini's timeout is 30s so a stalled request fails over instead of hanging.
+
+### `httpx2`, not `httpx`
+- `openai` v3 is built on `httpx2`, a separate package. Injected HTTP clients and test transports must come from `httpx2`; an `httpx` client only worked by duck typing, and `respx` (which patches `httpx`) never intercepted real calls.

@@ -1,0 +1,56 @@
+# LLM providers and role routing. All live calls use free tiers; see docs/decisions.md.
+# A provider whose api_key_env is unset is dropped from every chain at startup.
+
+providers:
+  gemini:
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key_env: GEMINI_API_KEY
+    timeout_s: 30  # free tier sometimes stalls for 45-90s; fail over instead of waiting
+  groq:
+    base_url: "https://api.groq.com/openai/v1"
+    api_key_env: GROQ_API_KEY
+  mistral:
+    base_url: "https://api.mistral.ai/v1"
+    api_key_env: MISTRAL_API_KEY
+  openrouter:
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: OPENROUTER_API_KEY
+  ollama_cloud:
+    base_url: "https://ollama.com/v1"
+    api_key_env: OLLAMA_API_KEY
+  anthropic:
+    base_url: "https://api.anthropic.com/v1/"
+    api_key_env: ANTHROPIC_API_KEY
+
+# Reference list prices used only to report API-equivalent cost (real calls are free).
+price_classes:
+  small:
+    input_per_mtok: 1.00
+    output_per_mtok: 5.00
+    reference: "Claude Haiku 4.5 list price"
+  large:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+    reference: "Claude Sonnet 4.5 list price"
+
+roles:
+  serve_small:
+    price_class: small
+    chain:
+      - {provider: gemini, model: gemini-3.1-flash-lite}
+      - {provider: groq, model: openai/gpt-oss-20b}
+  serve_large:
+    price_class: large
+    chain:
+      - {provider: gemini, model: gemini-3.6-flash}
+      - {provider: groq, model: openai/gpt-oss-120b}
+  bulk:
+    price_class: small
+    chain:
+      - {provider: mistral, model: mistral-small-latest}
+      - {provider: groq, model: openai/gpt-oss-20b}
+  judge:
+    price_class: large
+    chain:
+      - {provider: mistral, model: mistral-medium-latest}
+      - {provider: gemini, model: gemini-3.6-flash}
