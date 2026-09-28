@@ -15,14 +15,14 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 ## Models and providers
 
 ### $0 budget: free cloud tiers, routed by role
-- **Picked:** Gemini (AI Studio free tier) for live serving, with Flash-Lite as the small tier escalating to Flash; Mistral free tier for bulk eval work (golden-set generation, RAGAS judge, self-consistency); fallback chain Gemini → Groq → OpenRouter `:free` → Ollama Cloud.
+- **Picked:** Gemini (AI Studio free tier) for live serving, with Flash-Lite as the small tier escalating to Flash; ~~Mistral free tier for bulk eval work~~ (removed, see below); fallback chain Gemini → Groq → OpenRouter `:free` → Ollama Cloud.
 - **Rejected:** local inference on the laptop GPU (the owner wants the laptop's compute left free); paid Claude API (budget).
 - **Why:** free tiers differ by an order of magnitude on the axis that matters for each job. Bulk eval needs ~10M+ tokens per full run, and only Mistral's free tier has that volume. Live serving needs quality and latency, which suits Gemini. Gemini's low requests-per-minute cap means the circuit-breaker fallback path gets exercised for real, not only in tests.
 - **Consequence:** the spec's Haiku→Sonnet escalation becomes Flash-Lite→Flash escalation. The routing and calibration logic is identical; only model names change.
 
 ### One thin in-house `LLMProvider` instead of calling SDKs from each agent
 - **Why:** every model call has to pass one choke point for token/cost accounting, retries, circuit breakers, per-provider concurrency caps, and record/replay for reproducibility. Scattering SDK calls across agents would scatter all of those too.
-- **SDK:** the `openai` SDK pointed at each provider's OpenAI-compatible base URL (Gemini, Groq, Mistral, OpenRouter, Ollama all expose one). No OpenAI account is involved.
+- **SDK:** the `openai` SDK pointed at each provider's OpenAI-compatible base URL (Gemini, Groq, OpenRouter, Ollama all expose one). No OpenAI account is involved.
 
 ### LangGraph over the OpenAI Agents SDK
 - **Why:** LangGraph makes control flow explicit: nodes, edges, typed state, a hard termination condition, and checkpoints that make runs replayable. In handoff-style frameworks the model itself decides who runs next. A system that must be auditable, budget-capped and replayable needs control flow in code, not in model output.
@@ -58,7 +58,7 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 ## LLM provider layer (M2a)
 
 ### One adapter class for every provider, Claude included
-- **Picked:** a single `OpenAICompatProvider`. Gemini, Groq, Mistral, OpenRouter and Ollama Cloud all expose the OpenAI chat-completions API, and so does Anthropic (`https://api.anthropic.com/v1/`), so Claude is a config entry rather than a separate backend.
+- **Picked:** a single `OpenAICompatProvider`. Gemini, Groq, OpenRouter and Ollama Cloud all expose the OpenAI chat-completions API, and so does Anthropic (`https://api.anthropic.com/v1/`), so Claude is a config entry rather than a separate backend.
 - **Why:** one error-mapping path to test. Vendor differences (Gemini wraps errors in a list; Groq signals rate limits with a `retry-after` header, Gemini with a `RetryInfo` body) are normalized into three exceptions: `RateLimited(retry_after_s)`, `ProviderUnavailable` (retryable) and `ProviderRejected(status)` (not retryable).
 
 ### SDK retries disabled
@@ -78,3 +78,8 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 ### `httpx2`, not `httpx`
 - `openai` v3 is built on `httpx2`, a separate package. Injected HTTP clients and test transports must come from `httpx2`; an `httpx` client only worked by duck typing, and `respx` (which patches `httpx`) never intercepted real calls.
+
+### Mistral removed
+- **Decision (owner):** drop Mistral entirely. Its free-tier key returned 429 on the first request, and activating the free plan needs extra account setup.
+- **Consequence:** bulk eval work (golden-set generation, judging, self-consistency) runs on Groq, spread across `gpt-oss-20b`, `qwen3.8-27b` and then Gemini Flash-Lite. Groq's limits are per model (1,000 requests/day and 8,000 tokens/minute each), so three models give ~3,000 requests/day, plus Gemini's quota. A full eval run (~4,000 calls) fits in about a day. The eval runner must therefore be chunked and resumable, and wait for quota rather than fail; the record/replay cache means no call is repeated.
+- **Tradeoff:** judge and generator now share model families with the system under test (Gemini), which risks self-preference bias in the judge. Mitigation: the judge chain leads with a different model than the answering tier where possible, and the human spot-check of the golden set is kept.

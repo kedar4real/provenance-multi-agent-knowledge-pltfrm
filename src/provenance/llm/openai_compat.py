@@ -14,7 +14,7 @@ _DURATION = re.compile(r"^\s*([\d.]+)s\s*$")
 
 
 class OpenAICompatProvider:
-    """Any provider exposing the OpenAI chat-completions API (Gemini, Groq, Mistral, ...).
+    """Any provider exposing the OpenAI chat-completions API (Gemini, Groq, OpenRouter, ...).
 
     The SDK's own retries are disabled: the router owns retry and failover decisions, and
     silent SDK retries on 429 would hide rate limits and burn free-tier quota.

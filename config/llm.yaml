@@ -9,9 +9,6 @@ providers:
   groq:
     base_url: "https://api.groq.com/openai/v1"
     api_key_env: GROQ_API_KEY
-  mistral:
-    base_url: "https://api.mistral.ai/v1"
-    api_key_env: MISTRAL_API_KEY
   openrouter:
     base_url: "https://openrouter.ai/api/v1"
     api_key_env: OPENROUTER_API_KEY
@@ -44,13 +41,16 @@ roles:
     chain:
       - {provider: gemini, model: gemini-3.6-flash}
       - {provider: groq, model: openai/gpt-oss-120b}
+  # Groq quotas are per model (1,000 requests/day, 8,000 tokens/min each), so bulk work is
+  # spread across several models to multiply daily capacity.
   bulk:
     price_class: small
     chain:
-      - {provider: mistral, model: mistral-small-latest}
       - {provider: groq, model: openai/gpt-oss-20b}
+      - {provider: groq, model: qwen/qwen3.8-27b}
+      - {provider: gemini, model: gemini-3.1-flash-lite}
   judge:
     price_class: large
     chain:
-      - {provider: mistral, model: mistral-medium-latest}
       - {provider: gemini, model: gemini-3.6-flash}
+      - {provider: groq, model: openai/gpt-oss-120b}
