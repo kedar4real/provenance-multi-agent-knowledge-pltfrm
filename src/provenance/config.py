@@ -1,0 +1,15 @@
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime settings from the environment / .env. DSN defaults match docker-compose.yml."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    owner_dsn: str = "postgresql://provenance_owner:owner_dev_pw@127.0.0.1:5432/provenance"
+    app_dsn: str = "postgresql://provenance_app:app_dev_pw@127.0.0.1:5432/provenance"
+    sql_ro_dsn: str = "postgresql://provenance_sql_ro:sql_ro_dev_pw@127.0.0.1:5432/provenance"
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    rls_signing_key: SecretStr
+    sec_user_agent: str = ""

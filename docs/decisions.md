@@ -83,3 +83,26 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - **Decision (owner):** drop Mistral entirely. Its free-tier key returned 429 on the first request, and activating the free plan needs extra account setup.
 - **Consequence:** bulk eval work (golden-set generation, judging, self-consistency) runs on Groq, spread across `gpt-oss-20b`, `qwen3.8-27b` and then Gemini Flash-Lite. Groq's limits are per model (1,000 requests/day and 8,000 tokens/minute each), so three models give ~3,000 requests/day, plus Gemini's quota. A full eval run (~4,000 calls) fits in about a day. The eval runner must therefore be chunked and resumable, and wait for quota rather than fail; the record/replay cache means no call is repeated.
 - **Tradeoff:** judge and generator now share model families with the system under test (Gemini), which risks self-preference bias in the judge. Mitigation: the judge chain leads with a different model than the answering tier where possible, and the human spot-check of the golden set is kept.
+
+## Database and access control (M2b)
+
+### Three database roles, least privilege
+- `provenance_owner` owns tables and runs migrations. It is a superuser that bypasses RLS, so **no request path ever connects as it**.
+- `provenance_app` serves API requests. It owns nothing, so row-level security always applies.
+- `provenance_sql_ro` runs model-generated SQL: read-only by default (`default_transaction_read_only`), a 3-second `statement_timeout`, and `SELECT` on the financial tables only. It can't see document text at all.
+
+### Row-level security with a signed principal
+- **Problem:** RLS policies usually read the caller's groups from a session setting. The SQL worker runs SQL written by an LLM, and `SELECT set_config('app.groups', 'restricted', true)` is a valid `SELECT`, so a manipulated model could grant itself access.
+- **Picked:** the app sets both the group list and an HMAC-SHA256 signature of it. `app_groups()` (a `SECURITY DEFINER` function) recomputes the HMAC with a key stored in `app_secrets`, which query roles can't read. A forged or modified list yields no groups, so policies match no rows (fails closed). Proven by an attack test, and by a mutation test showing the attack succeeds when the check is removed.
+- **Rejected:** a database role per group (roles explode combinatorially with multi-group users); trusting a SQL-parsing guard alone (one bypass away from a leak; the guard stays as a second layer).
+- Settings are transaction-scoped (`set_config(..., true)`), so a pooled connection can't carry one caller's groups into another's request.
+- `(SELECT app_groups())` in the policy makes Postgres evaluate it once per query instead of once per row.
+
+### Access groups copied onto chunks
+- `chunks.acl_groups` duplicates the parent document's groups so vector and BM25 search filter without a join. Both search paths are tested to respect RLS.
+
+### Plain SQL migrations with a 40-line runner
+- **Rejected:** Alembic. Its value is autogenerating migrations from ORM models, and this project uses raw SQL (pgvector, pg_search, RLS policies are all hand-written DDL anyway).
+
+### Local-only database passwords
+- Compose ships dev-default passwords and binds every port to `127.0.0.1`, so nothing is reachable from the network. Real deployments override them from the environment.

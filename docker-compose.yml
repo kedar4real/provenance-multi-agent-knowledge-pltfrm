@@ -1,0 +1,48 @@
+# Local infrastructure. Ports bind to 127.0.0.1 only; passwords below are local-dev
+# defaults and can be overridden from .env.
+name: provenance
+
+services:
+  postgres:
+    image: paradedb/paradedb:0.25.10-pg17  # Postgres 17 + pg_search (BM25) + pgvector
+    environment:
+      POSTGRES_USER: provenance_owner
+      POSTGRES_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-owner_dev_pw}
+      POSTGRES_DB: provenance
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-app_dev_pw}
+      SQL_RO_DB_PASSWORD: ${SQL_RO_DB_PASSWORD:-sql_ro_dev_pw}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U provenance_owner -d provenance"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8.6.7  # Redis 8 includes the query engine used for vector search
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    profiles: ["observability"]
+    ports:
+      - "127.0.0.1:16686:16686"  # UI
+      - "127.0.0.1:4317:4317"    # OTLP gRPC
+      - "127.0.0.1:4318:4318"    # OTLP HTTP
+
+volumes:
+  pgdata:
+  redisdata:

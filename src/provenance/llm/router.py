@@ -116,7 +116,7 @@ def _attempt(
     return Attempt(
         provider=choice.provider,
         model=choice.model,
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         detail=detail,
         latency_ms=latency,
     )

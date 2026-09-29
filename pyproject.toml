@@ -14,6 +14,9 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0.3",
     "httpx2>=2.13.1",
+    "psycopg[binary]>=3.3.6",
+    "psycopg-pool>=3.3.3",
+    "pgvector>=0.5.0",
 ]
 
 [build-system]
@@ -44,7 +47,9 @@ ignore = ["E501"]  # the formatter owns line length; long strings are allowed
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["integration: needs the docker compose services running"]
