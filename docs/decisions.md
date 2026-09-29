@@ -106,3 +106,9 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 ### Local-only database passwords
 - Compose ships dev-default passwords and binds every port to `127.0.0.1`, so nothing is reachable from the network. Real deployments override them from the environment.
+
+## PII redaction (M2c)
+- **Type-enforced ordering:** `RedactedText` can only be built by `redact()` (a private construction token), and the embedder and chunk store accept only `RedactedText`. Skipping redaction is a type error caught by mypy, not a code-review item.
+- **Detected:** emails, phone numbers (US and international), SSNs (with invalid-range exclusions), card numbers (issuer prefix + Luhn).
+- **Not redacted:** people's names, because executives' names in public filings are facts users ask about, and NER-based detection needs a large model (spaCy/Presidio) for little benefit on this corpus. Company EINs identify organizations, not people.
+- **Rejected:** Presidio. Its value is NER-based entity types this corpus doesn't need; regex + validators are transparent and fast, and every rule is unit-tested including against false positives from real filings.
