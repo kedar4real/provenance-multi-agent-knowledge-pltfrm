@@ -112,3 +112,22 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - **Detected:** emails, phone numbers (US and international), SSNs (with invalid-range exclusions), card numbers (issuer prefix + Luhn).
 - **Not redacted:** people's names, because executives' names in public filings are facts users ask about, and NER-based detection needs a large model (spaCy/Presidio) for little benefit on this corpus. Company EINs identify organizations, not people.
 - **Rejected:** Presidio. Its value is NER-based entity types this corpus doesn't need; regex + validators are transparent and fast, and every rule is unit-tested including against false positives from real filings.
+
+## Ingestion (M2c)
+
+### Section-aware semantic chunking
+- **Picked:** chunks never cross a 10-K Item boundary. Within a section, paragraphs are embedded and a new chunk starts where the topic shifts most (cosine distance between neighbouring paragraphs above the section's 90th percentile), bounded by 80-400 tokens of the embedding model's own tokenizer. Paragraphs over the limit split by sentence, then by word windows.
+- **Rejected:** fixed-size character windows (cut mid-sentence and mix topics, which hurts both retrieval and citation quality).
+- **Measured:** Apple Item 1A (68K chars) → 41 chunks, 82-396 tokens, median 320.
+
+### Contextual chunk headers
+- Each chunk stores a `context` like "Apple Inc. (AAPL) 10-K fiscal 2025, Item 1A Risk Factors". It is prepended when embedding and is part of the BM25 index. Chunk text usually says "the Company", so without it a query naming the company misses relevant chunks.
+
+### Section text stored for citations
+- `sections.text` holds the redacted section; chunk `char_start`/`char_end` index into it, so every citation resolves to an exact span. An integration test and a real-data check (0 of 490 chunks broken) verify it. Section rows carry the same RLS as chunks.
+
+### XBRL fiscal-year attribution
+- A 10-K reports prior years too, all tagged with the filing's `fy`. A value is attributed to fiscal year `fy` only when it is the current period of its own filing; later amendments win; calendar frames (`CY2024`) are borrowed from whichever copy SEC tagged. Both labels are stored because they differ for non-calendar fiscal years (NVIDIA fiscal 2024 = calendar 2023).
+
+### Local embeddings: bge-small-en-v1.5
+- 384 dimensions, CPU-only PyTorch build, 4 threads. Free, private (text never leaves the machine for embedding), and small enough to embed the corpus in ~35 minutes on a laptop CPU. Queries get the model's retrieval instruction prefix; passages don't.

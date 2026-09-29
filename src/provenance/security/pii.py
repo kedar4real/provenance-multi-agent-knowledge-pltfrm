@@ -33,6 +33,10 @@ class RedactedText:
         self.text = text
         self.counts = counts
 
+    def slice(self, start: int, end: int) -> "RedactedText":
+        """A substring of redacted text contains no PII, so it keeps the guarantee."""
+        return RedactedText(text=self.text[start:end], counts={}, _token=_TOKEN)
+
     @property
     def total(self) -> int:
         return sum(self.counts.values())

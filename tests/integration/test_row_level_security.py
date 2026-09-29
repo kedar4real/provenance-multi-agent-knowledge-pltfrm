@@ -32,10 +32,15 @@ def seed(owner: psycopg.Connection) -> None:
             "VALUES ('10-K', '0000320193', %s, %s) RETURNING id",
             (title, acl),
         ).fetchone()[0]  # type: ignore[index]
+        section_id = owner.execute(
+            "INSERT INTO sections (document_id, item, title, text, acl_groups)"
+            " VALUES (%s, '1A', 'Risk Factors', %s, %s) RETURNING id",
+            (doc_id, text, acl),
+        ).fetchone()[0]  # type: ignore[index]
         owner.execute(
-            "INSERT INTO chunks (document_id, section, chunk_index, text, char_start, char_end,"
-            " token_count, embedding, acl_groups) VALUES (%s,'1A',0,%s,0,40,8,%s,%s)",
-            (doc_id, text, emb, acl),
+            "INSERT INTO chunks (document_id, section_id, section, chunk_index, text, char_start,"
+            " char_end, token_count, embedding, acl_groups) VALUES (%s,%s,'1A',0,%s,0,40,8,%s,%s)",
+            (doc_id, section_id, text, emb, acl),
         )
     for acl, value in [(TECH, 391035000000), (RESTRICTED, 1)]:
         owner.execute(
@@ -88,6 +93,16 @@ def test_forged_group_change_after_signing_sees_nothing(
     app.execute("SELECT set_config('app.groups', 'internal_restricted', true)")
 
     assert titles(app) == []
+
+
+def test_section_text_for_citations_respects_permissions(
+    app: psycopg.Connection, migrated: Settings
+) -> None:
+    as_principal(app, TECH, migrated.rls_signing_key.get_secret_value())
+
+    rows = app.execute("SELECT text FROM sections").fetchall()
+
+    assert rows == [("supply chain risk in the tariff section",)]
 
 
 def test_bm25_search_respects_permissions(app: psycopg.Connection, migrated: Settings) -> None:

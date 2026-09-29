@@ -66,3 +66,12 @@ def test_counts_every_redaction_by_kind() -> None:
 def test_redacted_text_cannot_be_constructed_outside_the_redactor() -> None:
     with pytest.raises(TypeError):
         RedactedText("raw text that skipped redaction", {})  # type: ignore[call-arg]
+
+
+def test_slice_of_redacted_text_stays_redacted() -> None:
+    out = redact("Email a@b.com or call 408-996-1010 now.")
+
+    piece = out.slice(0, 13)
+
+    assert isinstance(piece, RedactedText)
+    assert piece.text == out.text[0:13]
