@@ -41,7 +41,10 @@ def main(argv: list[str]) -> int:
     if args.action == "issue":
         key = KEY_PREFIX + secrets.token_urlsafe(32)
         hashes[hash_key(key)] = args.principal
-    settings.api_keys_path.write_text(json.dumps(hashes, indent=2) + "\n", encoding="utf-8")
+    # Atomic swap: the running API re-reads this file and must never see half of it.
+    tmp = settings.api_keys_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(hashes, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(settings.api_keys_path)
 
     if key:
         print(f"API key for {args.principal} (shown once, store it somewhere safe):\n{key}")

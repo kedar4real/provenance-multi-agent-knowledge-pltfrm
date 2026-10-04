@@ -23,12 +23,18 @@ class PrincipalRegistry:
     """Resolves API keys to principals. Only SHA-256 hashes of keys are held, so a leaked key
     file can't be replayed; keys are random 256-bit tokens, so an unsalted hash is enough."""
 
-    def __init__(self, principals: dict[str, Principal], key_hashes: dict[str, str]) -> None:
-        unknown = set(key_hashes.values()) - principals.keys()
-        if unknown:
-            raise ValueError(f"API keys issued for unknown principals: {sorted(unknown)}")
+    def __init__(
+        self,
+        principals: dict[str, Principal],
+        key_hashes: dict[str, str],
+        api_keys_path: Path | None = None,
+    ) -> None:
         self.principals = principals
-        self._by_hash = key_hashes
+        self._by_hash = self._checked(key_hashes)
+        # With a path, the key file is watched: keys issued or revoked while the API runs
+        # take effect on the next request (one stat() per request), no restart needed.
+        self._path = api_keys_path
+        self._mtime = _mtime(api_keys_path) if api_keys_path else None
 
     @classmethod
     def load(cls, principals_path: Path, api_keys_path: Path) -> "PrincipalRegistry":
@@ -36,11 +42,33 @@ class PrincipalRegistry:
         principals = {
             name: Principal(name=name, **spec) for name, spec in raw["principals"].items()
         }
-        return cls(principals, load_key_hashes(api_keys_path))
+        return cls(principals, load_key_hashes(api_keys_path), api_keys_path)
 
     def authenticate(self, api_key: str) -> Principal | None:
+        self._reload_if_changed()
         name = self._by_hash.get(hash_key(api_key))
         return self.principals[name] if name else None
+
+    def _reload_if_changed(self) -> None:
+        if self._path is None:
+            return
+        mtime = _mtime(self._path)
+        if mtime != self._mtime:
+            self._by_hash = self._checked(load_key_hashes(self._path))
+            self._mtime = mtime
+
+    def _checked(self, key_hashes: dict[str, str]) -> dict[str, str]:
+        unknown = set(key_hashes.values()) - self.principals.keys()
+        if unknown:
+            raise ValueError(f"API keys issued for unknown principals: {sorted(unknown)}")
+        return key_hashes
+
+
+def _mtime(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return None
 
 
 def load_key_hashes(path: Path) -> dict[str, str]:

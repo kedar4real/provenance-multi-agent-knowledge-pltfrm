@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -83,3 +85,27 @@ def test_issue_for_unknown_principal_fails(key_env: Path) -> None:
     with pytest.raises(SystemExit):
         keys.main(["issue", "ghost"])
     assert not key_env.exists()
+
+
+def test_keys_issued_after_startup_work_without_a_restart(
+    principals_path: Path, tmp_path: Path
+) -> None:
+    keys_path = tmp_path / "api_keys.json"
+    registry = PrincipalRegistry.load(principals_path, keys_path)
+
+    keys_path.write_text(json.dumps({hash_key("pk_new"): "ana_tech"}), encoding="utf-8")
+
+    authenticated = registry.authenticate("pk_new")
+    assert authenticated is not None and authenticated.name == "ana_tech"
+
+
+def test_revoked_keys_stop_working_immediately(principals_path: Path, tmp_path: Path) -> None:
+    keys_path = tmp_path / "api_keys.json"
+    keys_path.write_text(json.dumps({hash_key("pk_old"): "ana_tech"}), encoding="utf-8")
+    registry = PrincipalRegistry.load(principals_path, keys_path)
+    assert registry.authenticate("pk_old") is not None
+
+    keys_path.write_text("{}", encoding="utf-8")
+    os.utime(keys_path, ns=(time.time_ns(), time.time_ns() + 10**9))  # mtime visibly changed
+
+    assert registry.authenticate("pk_old") is None

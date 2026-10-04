@@ -34,3 +34,4 @@ Thumbs.db
 
 # API key hashes issued locally
 config/api_keys.local.json
+config/api_keys.local.tmp
