@@ -201,6 +201,7 @@ function Results(props: {
   return (
     <div className="space-y-4" aria-live="polite">
       <ResultsSummary result={result} />
+      <WeakEvidenceNotice result={result} identityName={props.identityName} />
       {result.hits.length === 0 ? (
         <div className="py-10 text-center">
           <p className="font-serif text-lg">No passages {props.identityName} can see match this.</p>
@@ -239,5 +240,24 @@ function Welcome() {
         <span className="text-sm text-ink-3">You'll need an API key from the terminal.</span>
       </div>
     </section>
+  );
+}
+
+// In the first eval run the best rerank score had a median of 0.99 for answerable questions
+// and 0.14 for unanswerable ones. Below this line, say so instead of implying an answer.
+// An uncalibrated hint; calibrated abstention is a later milestone.
+const WEAK_EVIDENCE = 0.3;
+
+function WeakEvidenceNotice({ result, identityName }: { result: SearchResult; identityName: string }) {
+  const scores = result.hits.map((h) => h.rerank_score).filter((s): s is number => s !== null);
+  if (!result.reranked || scores.length === 0 || Math.max(...scores) >= WEAK_EVIDENCE) return null;
+  return (
+    <div role="status" className="rounded-lg border border-rule bg-inset px-4 py-3 text-sm">
+      <p className="font-medium text-ink">These passages probably don't answer the question.</p>
+      <p className="mt-0.5 text-ink-2">
+        The best match scored {Math.max(...scores).toFixed(2)} for relevance. The answer may be in filings{" "}
+        {identityName.split(" ")[0]} can't see, or not in any filing.
+      </p>
+    </div>
   );
 }
