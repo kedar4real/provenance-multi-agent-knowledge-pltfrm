@@ -131,3 +131,21 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 ### Local embeddings: bge-small-en-v1.5
 - 384 dimensions, CPU-only PyTorch build, 4 threads. Free, private (text never leaves the machine for embedding), and small enough to embed the corpus in ~35 minutes on a laptop CPU. Queries get the model's retrieval instruction prefix; passages don't.
+
+## API skeleton (M2d)
+
+### API keys map to principals; only hashes are stored
+- `config/principals.yaml` (committed) lists demo principals and their access groups. `python -m provenance.api.keys issue <name>` prints a random 256-bit key once and saves only its SHA-256 to `config/api_keys.local.json` (gitignored). A leaked hash file can't be replayed. Keys have full entropy, so a plain hash is enough (no bcrypt, which exists for low-entropy passwords).
+- **Rejected:** JWT/OAuth for now. There is no identity provider to issue tokens, and principals → groups is the part RLS needs. Swapping the authenticator later doesn't touch RLS.
+
+### One transaction per request, carrying the signed principal
+- The `get_db` dependency opens a pooled connection as the non-owner app role, starts a transaction and sets the HMAC-signed group list (`principal_sql`) before the route runs. Routes contain no group filters; RLS filters every query. The settings are transaction-local, so a pooled connection can't carry one caller's groups into the next request (tested by alternating callers).
+
+### Raw ASGI middleware, not `BaseHTTPMiddleware`
+- `BaseHTTPMiddleware` buffers streaming bodies and breaks SSE, which `/query` needs in M5.
+
+### One error shape, no internals
+- `{"error": {"code", "message", "request_id"}}` for every failure. Unhandled exceptions are logged and returned as a bare 500 (a test checks that a secret in the exception message doesn't reach the client).
+
+### Selector event loop on Windows
+- psycopg's async driver can't use the Proactor loop that Windows defaults to. The launcher passes `asyncio:SelectorEventLoop` to uvicorn on Windows only. In Docker (Linux), uvicorn's default applies.
