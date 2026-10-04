@@ -40,7 +40,9 @@ export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2" }:
         <div className="min-w-0">
           <p className="text-xs font-medium text-ink-3">Source</p>
           <Title className="mt-0.5 truncate font-serif text-lg font-medium">
-            {state.status === "ready" ? state.source.document_title : "Loading passage…"}
+            {state.status === "ready"
+              ? `${state.source.company} · 10-K FY${state.source.fiscal_year}`
+              : "Loading passage…"}
           </Title>
         </div>
         <button
@@ -94,12 +96,12 @@ function SourceBody({ source }: { source: Source }) {
           </a>
         </dd>
       </dl>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-5">
         <p className="font-serif text-[17px] leading-[1.7] whitespace-pre-line text-ink-3">
           {truncatedStart && <span aria-hidden>… </span>}
           {before}
           <mark
-            ref={(el) => el?.scrollIntoView({ block: "center" })}
+            ref={centerInScroller}
             className="evidence"
             aria-label="Cited passage"
           >
@@ -111,6 +113,13 @@ function SourceBody({ source }: { source: Source }) {
       </div>
     </div>
   );
+}
+
+// scrollIntoView would also scroll the page behind the panel; move only the panel.
+function centerInScroller(mark: HTMLElement | null): void {
+  const scroller = mark?.closest<HTMLElement>(".overflow-y-auto");
+  if (!mark || !scroller) return;
+  scroller.scrollTop = Math.max(mark.offsetTop - scroller.clientHeight / 3, 0);
 }
 
 function SourceSkeleton() {

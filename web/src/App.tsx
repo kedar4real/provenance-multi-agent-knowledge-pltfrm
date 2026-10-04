@@ -1,6 +1,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useRef, useState } from "react";
 
+import { AccessScope } from "./components/AccessScope";
 import { AddIdentityButton, IdentityMenu } from "./components/IdentityMenu";
 import { HitCard } from "./components/HitCard";
 import { ResultsSummary } from "./components/ResultsSummary";
@@ -82,13 +83,16 @@ function Workspace({ identity }: { identity: Identity }) {
         }
       >
         <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-6">
-          <SearchForm
-            params={params}
-            onChange={setParams}
-            onSubmit={() => void run()}
-            pending={search.status === "pending"}
-            disabled={false}
-          />
+          <div className="space-y-3">
+            <SearchForm
+              params={params}
+              onChange={setParams}
+              onSubmit={() => void run()}
+              pending={search.status === "pending"}
+              disabled={false}
+            />
+            <AccessScope identity={identity} />
+          </div>
           <Results
             state={search}
             selected={selected}
