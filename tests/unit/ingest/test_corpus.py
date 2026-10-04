@@ -1,6 +1,6 @@
 import pytest
 
-from provenance.ingest.corpus import ALL_RESEARCH_GROUP, CORPUS, CorpusCompany
+from provenance.ingest.corpus import ALL_RESEARCH_GROUP, COMMON_NAMES, CORPUS, CorpusCompany
 
 
 def test_corpus_has_thirty_unique_companies() -> None:
@@ -26,3 +26,7 @@ def test_exxon_is_pinned_to_the_entity_that_files_its_10ks() -> None:
 def test_a_pinned_cik_needs_a_name() -> None:
     with pytest.raises(ValueError):
         CorpusCompany(ticker="XOM", sector="energy", cik="0000034088")
+
+
+def test_every_company_has_a_common_name() -> None:
+    assert {c.ticker for c in CORPUS} == set(COMMON_NAMES)

@@ -50,3 +50,16 @@ CORPUS: list[CorpusCompany] = [
     for t in tickers
 ]
 FILINGS_PER_COMPANY = 2
+
+# How people refer to each company. SEC's registered names ("JPMORGAN CHASE & CO",
+# "BANK OF AMERICA CORP /DE/") are for filings; questions and the UI use these.
+COMMON_NAMES: dict[str, str] = {
+    "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "Nvidia", "GOOGL": "Alphabet",
+    "META": "Meta", "AMZN": "Amazon", "WMT": "Walmart", "COST": "Costco", "TGT": "Target",
+    "HD": "Home Depot", "JPM": "JPMorgan Chase", "BAC": "Bank of America",
+    "GS": "Goldman Sachs", "V": "Visa", "JNJ": "Johnson & Johnson", "PFE": "Pfizer",
+    "UNH": "UnitedHealth", "LLY": "Eli Lilly", "MRK": "Merck", "XOM": "ExxonMobil",
+    "CVX": "Chevron", "COP": "ConocoPhillips", "CAT": "Caterpillar", "BA": "Boeing",
+    "GE": "GE Aerospace", "UPS": "UPS", "KO": "Coca-Cola", "PEP": "PepsiCo",
+    "PG": "Procter & Gamble", "NKE": "Nike",
+}  # fmt: skip
