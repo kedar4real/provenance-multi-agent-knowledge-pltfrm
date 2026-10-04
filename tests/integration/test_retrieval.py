@@ -278,3 +278,40 @@ async def test_search_endpoint_applies_the_callers_permissions(
     assert set(body["timings_ms"]) >= {"embed", "dense", "bm25", "fetch", "rerank"}
     assert unauthenticated.status_code == 401
     assert invalid.status_code == 422
+
+
+async def test_source_endpoint_highlights_the_span_and_hides_other_groups(
+    migrated: Settings, corpus: None, owner: psycopg.Connection, tmp_path: Path
+) -> None:
+    ids: dict[str, int] = dict(
+        owner.execute(
+            "SELECT co.ticker, c.id FROM chunks c JOIN documents d ON d.id = c.document_id"
+            " JOIN companies co ON co.cik = d.cik WHERE c.chunk_index IN (0, 3)"
+        ).fetchall()
+    )
+    principals = tmp_path / "principals.yaml"
+    principals.write_text(
+        "principals:\n  tech: {display_name: Tech, groups: [analyst_tech]}\n", encoding="utf-8"
+    )
+    api_keys = tmp_path / "keys.json"
+    api_keys.write_text(json.dumps({hash_key("pk_tech"): "tech"}), encoding="utf-8")
+    settings = migrated.model_copy(
+        update={"principals_path": principals, "api_keys_path": api_keys, "load_models": False}
+    )
+    headers = {"X-API-Key": "pk_tech"}
+    async with (
+        LifespanManager(create_app(settings)) as manager,
+        AsyncClient(transport=ASGITransport(manager.app), base_url="http://test") as client,
+    ):
+        own = await client.get(f"/v1/sources/{ids['AAPL']}", headers=headers)
+        hidden = await client.get(f"/v1/sources/{ids['JPM']}", headers=headers)
+        missing = await client.get("/v1/sources/999999", headers=headers)
+
+    body = own.json()
+    assert own.status_code == 200
+    assert body["company"] == "Apple"
+    cited = body["text"][body["highlight_start"] : body["highlight_end"]]
+    assert cited == "Tariffs on imported components raise costs."
+    # A hidden source and a missing one are indistinguishable.
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.json()["error"]["code"] == missing.json()["error"]["code"] == "source_not_found"

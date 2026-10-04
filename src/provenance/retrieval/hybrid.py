@@ -11,6 +11,7 @@ from typing import Protocol
 import numpy as np
 from psycopg import AsyncConnection
 
+from provenance.ingest.corpus import COMMON_NAMES
 from provenance.retrieval.bm25 import bm25_search
 from provenance.retrieval.dense import dense_search
 from provenance.retrieval.fusion import reciprocal_rank_fusion
@@ -215,7 +216,7 @@ async def _load_hits(
                 chunk_id=row[0],
                 document_id=row[1],
                 ticker=row[2],
-                company=row[3],
+                company=COMMON_NAMES.get(row[2], row[3]),
                 fiscal_year=row[4],
                 item=row[5],
                 section_title=row[6],

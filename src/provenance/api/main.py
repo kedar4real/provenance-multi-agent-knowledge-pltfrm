@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from provenance.api.errors import install_error_handlers
 from provenance.api.lifespan import Retriever, lifespan
 from provenance.api.middleware import RequestContextMiddleware
-from provenance.api.routers import health, me, search
+from provenance.api.routers import health, me, search, sources
 from provenance.config import Settings
 
 
@@ -27,4 +27,5 @@ def create_app(settings: Settings | None = None, retriever: Retriever | None = N
     app.include_router(health.router)
     app.include_router(me.router)
     app.include_router(search.router)
+    app.include_router(sources.router)
     return app
