@@ -14,6 +14,8 @@ _QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 class Embedder:
     def __init__(self, model_name: str = MODEL_NAME, threads: int = 4) -> None:
+        """`threads` sets torch's process-wide CPU thread count: 4 keeps the laptop usable
+        during ingestion; the API passes all cores, since reranking is latency-bound."""
         torch.set_num_threads(threads)
         self._model = SentenceTransformer(model_name, device="cpu")
 
