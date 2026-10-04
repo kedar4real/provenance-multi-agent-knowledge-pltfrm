@@ -31,3 +31,6 @@ web/dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# API key hashes issued locally
+config/api_keys.local.json

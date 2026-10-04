@@ -1,5 +1,9 @@
+from pathlib import Path
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+REPO_ROOT = Path(__file__).parents[2]
 
 
 class Settings(BaseSettings):
@@ -13,3 +17,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     rls_signing_key: SecretStr
     sec_user_agent: str = ""
+    principals_path: Path = REPO_ROOT / "config" / "principals.yaml"
+    api_keys_path: Path = REPO_ROOT / "config" / "api_keys.local.json"
+    db_pool_max_size: int = 10

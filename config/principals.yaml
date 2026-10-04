@@ -1,0 +1,19 @@
+# Demo principals: who exists and which access groups they hold. API keys are never stored
+# here; `uv run python -m provenance.api.keys issue <name>` prints a key once and saves only
+# its SHA-256 to config/api_keys.local.json (gitignored).
+principals:
+  ana_tech:
+    display_name: Ana (tech analyst)
+    groups: [analyst_tech]
+  fin_finance:
+    display_name: Finn (finance analyst)
+    groups: [analyst_finance]
+  hana_health:
+    display_name: Hana (healthcare analyst)
+    groups: [analyst_healthcare]
+  rhea_research:
+    display_name: Rhea (head of research)
+    groups: [research_all]
+  ivan_internal:
+    display_name: Ivan (research + internal notes)
+    groups: [research_all, internal_restricted]

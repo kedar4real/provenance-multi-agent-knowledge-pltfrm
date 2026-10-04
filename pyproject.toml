@@ -20,6 +20,9 @@ dependencies = [
     "selectolax>=0.4.13",
     "sentence-transformers>=6.1.0",
     "numpy>=2.5.3",
+    "fastapi>=0.142.2",
+    "uvicorn[standard]>=0.54.0",
+    "redis>=8.1.0",
 ]
 
 [build-system]
@@ -36,6 +39,7 @@ dev = [
     "pytest>=8.4",
     "pytest-asyncio>=1.2",
     "pre-commit>=4.3",
+    "asgi-lifespan>=2.1.0",
 ]
 
 [tool.ruff]
