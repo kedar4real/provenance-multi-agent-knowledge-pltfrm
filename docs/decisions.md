@@ -168,3 +168,23 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - The small model rewrites the question into a keyword-rich query and proposes filters (tickers, fiscal years, 10-K Items). Every field is validated (known tickers only). Any failure falls back to the original query unfiltered, and filters that match nothing are relaxed.
 - **Measured:** Gemini Flash-Lite added section filters the question never asked for ("data center demand at Nvidia" → MD&A only), which silently hides relevant passages. Section and year filters are now kept only when the question itself names the section or year; tickers stay with the model, since mapping "Apple" to AAPL is what it's good at.
 - The query is PII-redacted before the rewrite call, embedding, search or logging.
+
+## Evaluation (M4)
+
+### Golden-set construction
+- 200 cases in the spec's mix. Text and cross-worker questions are LLM-written from sampled passages (round-robin over company x Item, table-heavy passages skipped) and kept only if a judge model from a different provider approves; financial questions are computed exactly from `financial_facts` (the LLM only paraphrases); unanswerable and adversarial cases are hand-written.
+- Passages are referenced by `accession:item:char_start`, never DB IDs, so re-ingestion doesn't invalidate the set. A case's gold set includes near-duplicates (cosine distance < 0.05, same company and Item): 10-Ks repeat risk factors year to year, and retrieving last year's identical paragraph is not a miss.
+- Questions use common company names ("Bank of America", not "BANK OF AMERICA CORP /DE/").
+- **Known bias, recorded rather than tuned away:** the generator is told not to copy 4+ word phrases, which produced synonyms no analyst would use ("Executive-level subscribers" for "Executive members"). Both rerank misses in the first run were of this kind. It makes the set harder for keyword search than real questions are, so BM25's contribution is likely understated.
+
+### Metrics
+- Recall@1/5/10, MRR@10, nDCG@10 (binary; duplicate evidence earns no extra credit), 95% bootstrap intervals, per config: (a) dense, (b) hybrid, (c) hybrid + rerank, (d) + LLM rewrite. Every query runs as the case's principal through RLS; adversarial cases count leaked tickers (expected: 0).
+
+### First run (partial set: 37 text cases)
+- Rerank is the clear win: R@1 0.49 -> 0.65, MRR 0.59 -> 0.75, R@10 0.86 -> 0.95, at ~4 s per query. Hybrid vs dense: no significant difference on this set (see bias above). ACL leaks: 0/8.
+- The top rerank score separates answerable (median 0.99) from unanswerable (0.14) questions: the signal M8's abstention will calibrate. The UI already uses it as an uncalibrated hint (< 0.3).
+
+## Web UI (pulled forward from M10)
+- Vite + React + Tailwind + Base UI primitives (accessible menus, dialogs, switches), guided by the ui-skills `interface-design`, `baseline-ui` and `fixing-accessibility` skills. "Annotated filing" direction: serif for filing text, one highlighter accent reserved for evidence, borders-only depth.
+- Identities are API keys kept in localStorage: right for a local demo of per-user access, not a production pattern (a real deployment would hold a session, not a raw key).
+- Reviewed from real screenshots (headless Chrome via Playwright, desktop and phone, light and dark), which caught issues code review didn't: the source panel scrolling the whole page, the provenance rail crushing text on phones, legal names in titles.
