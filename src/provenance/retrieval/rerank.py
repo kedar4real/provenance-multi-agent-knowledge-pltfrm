@@ -6,12 +6,16 @@ Torch's thread count is process-wide; the caller sets it (see Embedder's `thread
 
 from sentence_transformers import CrossEncoder
 
+from provenance.retrieval.models import load_cached_first
+
 MODEL_NAME = "BAAI/bge-reranker-base"
 
 
 class Reranker:
     def __init__(self, model_name: str = MODEL_NAME) -> None:
-        self._model = CrossEncoder(model_name, device="cpu", max_length=512)
+        self._model = load_cached_first(
+            lambda **kw: CrossEncoder(model_name, device="cpu", max_length=512, **kw)
+        )
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:

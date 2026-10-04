@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
+from provenance.retrieval.models import load_cached_first
 from provenance.security.pii import RedactedText
 
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
@@ -17,7 +18,9 @@ class Embedder:
         """`threads` sets torch's process-wide CPU thread count: 4 keeps the laptop usable
         during ingestion; the API passes all cores, since reranking is latency-bound."""
         torch.set_num_threads(threads)
-        self._model = SentenceTransformer(model_name, device="cpu")
+        self._model = load_cached_first(
+            lambda **kw: SentenceTransformer(model_name, device="cpu", **kw)
+        )
 
     def count_tokens(self, text: str) -> int:
         return len(self._model.tokenizer(text, add_special_tokens=True, verbose=False)["input_ids"])
