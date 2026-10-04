@@ -31,7 +31,7 @@ async def client(migrated: Settings, tmp_path: Path) -> AsyncIterator[AsyncClien
     api_keys = tmp_path / "api_keys.json"
     api_keys.write_text(json.dumps({hash_key(k): n for k, n in KEYS.items()}), encoding="utf-8")
     settings = migrated.model_copy(
-        update={"principals_path": principals, "api_keys_path": api_keys}
+        update={"principals_path": principals, "api_keys_path": api_keys, "load_models": False}
     )
     app = create_app(settings)
     async with (

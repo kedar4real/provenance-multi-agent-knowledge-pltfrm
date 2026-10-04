@@ -36,6 +36,7 @@ def offline_settings(principals_path: Path, tmp_path: Path) -> Settings:
         rls_signing_key=SecretStr("unit-test-key"),
         principals_path=principals_path,
         api_keys_path=tmp_path / "api_keys.json",
+        load_models=False,
     )
 
 
