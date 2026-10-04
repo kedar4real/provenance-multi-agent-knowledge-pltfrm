@@ -149,3 +149,22 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 ### Selector event loop on Windows
 - psycopg's async driver can't use the Proactor loop that Windows defaults to. The launcher passes `asyncio:SelectorEventLoop` to uvicorn on Windows only. In Docker (Linux), uvicorn's default applies.
+
+## Retrieval (M3)
+
+### Hybrid: dense + BM25, fused by rank
+- Dense (bge-small, pgvector HNSW, cosine) catches paraphrases; BM25 (ParadeDB) catches exact terms, tickers and figures that embeddings blur. Each returns 50 candidates; **Reciprocal Rank Fusion** (k=60) merges them by position only, so the incomparable score scales (cosine distance vs BM25) never need calibrating.
+- BM25 queries go through `paradedb.match`, which tokenizes input as plain text: user queries can't inject query syntax, and a stray `(` can't cause an error. Both `text` and the contextual header are searched.
+
+### Iterative HNSW scans under row-level security
+- RLS filters rows *after* the vector index returns them. With 1,000 hidden chunks nearer to the query than any visible one, a plain HNSW scan returned **0** results to a tech analyst (reproduced in a test); `hnsw.iterative_scan = relaxed_order` keeps scanning until enough visible rows are found and returns all 3. The test forces the HNSW plan and was verified to fail with the setting off.
+- On today's corpus (9.3K chunks) the planner actually prefers fetching the caller's rows through the ACL index and sorting them exactly (60-150 ms, perfect recall). The iterative scan is the guard for when the corpus grows and the plan flips.
+
+### Cross-encoder reranking, all cores, top 20
+- `bge-reranker-base` rescoring the fused candidates. Measured on the laptop CPU: 30 passages on 4 threads 11-14 s; 16 threads 4.6 s; 20 passages 3.6 s with the same top 5. Serving uses all cores (torch's thread count is process-wide, so it's set once, by the embedder); ingestion keeps 4 threads so the laptop stays usable.
+- **Rejected for now:** ONNX/int8 export (the optimum exporter failed on this model with current library versions) and torch dynamic quantization (deprecated, and it broke inference). Reranking is a per-request switch so M4 can measure whether it earns its latency.
+
+### LLM query rewriting, with guards
+- The small model rewrites the question into a keyword-rich query and proposes filters (tickers, fiscal years, 10-K Items). Every field is validated (known tickers only). Any failure falls back to the original query unfiltered, and filters that match nothing are relaxed.
+- **Measured:** Gemini Flash-Lite added section filters the question never asked for ("data center demand at Nvidia" → MD&A only), which silently hides relevant passages. Section and year filters are now kept only when the question itself names the section or year; tickers stay with the model, since mapping "Apple" to AAPL is what it's good at.
+- The query is PII-redacted before the rewrite call, embedding, search or logging.
