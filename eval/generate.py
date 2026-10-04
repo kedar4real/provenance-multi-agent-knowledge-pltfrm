@@ -120,13 +120,16 @@ Return JSON: {"question": str}"""
 
 JUDGE_PROMPT = """You check evaluation questions for a search system over SEC 10-K filings.
 Given the question, the reference answer and the source evidence, decide whether to keep it.
-Keep only if ALL hold:
-1. standalone: understandable without seeing the passage (names the company);
-2. grounded: the evidence fully supports the reference answer;
-3. specific: it can't be answered from general knowledge alone;
-4. not a near-verbatim copy of the evidence;
-5. useful: an analyst would plausibly ask it (not about boilerplate such as where filings
+The QUESTION must be:
+1. standalone: understandable without seeing the passage (it names the company);
+2. specific: not answerable from general knowledge alone;
+3. in its own words: not a near-verbatim copy of an evidence sentence (using the filing's
+   own names for products, programs or metrics is fine);
+4. useful: something an analyst would plausibly ask (not boilerplate such as where filings
    are posted or forward-looking-statement disclaimers).
+The REFERENCE ANSWER must be grounded: fully supported by the evidence. It is SUPPOSED to
+restate the evidence closely; never reject a case because the answer resembles the evidence
+or because the answer doesn't repeat the company name.
 Return JSON: {"keep": bool, "reason": str}"""
 
 
@@ -146,7 +149,11 @@ class Generator:
         request = ChatRequest(
             messages=[Message(role="system", content=system), Message(role="user", content=user)],
             json_mode=True,
-            max_tokens=400,
+            # Judging is a short checklist; low effort cuts hidden tokens and frees rate limit.
+            reasoning_effort="low" if role == JUDGE_ROLE else None,
+            # Reasoning models (gpt-oss) spend ~200-300 hidden tokens before the JSON; at 400
+            # the JSON got truncated and rejected, which stalled generation.
+            max_tokens=600 if role == JUDGE_ROLE else 1200,
         )
         # Free tiers trip their per-minute limits within seconds of back-to-back calls.
         # Skipping on failure burned through 229 sources in one run; waiting keeps them.
@@ -154,8 +161,9 @@ class Generator:
             try:
                 response = await self.llm.complete(role, request)
                 break
-            except AllProvidersFailed:
-                print(f"  ~ all {role} providers busy; waiting {wait_s}s", flush=True)
+            except AllProvidersFailed as e:
+                why = "; ".join(f"{a.model}: {a.outcome} {a.detail[:90]}" for a in e.attempts)
+                print(f"  ~ all {role} providers failed ({why}); waiting {wait_s}s", flush=True)
                 await asyncio.sleep(wait_s)
         else:
             response = await self.llm.complete(role, request)

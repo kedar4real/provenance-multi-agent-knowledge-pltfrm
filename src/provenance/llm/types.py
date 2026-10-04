@@ -19,6 +19,9 @@ class ChatRequest(BaseModel):
     logprobs: bool = False
     top_logprobs: int | None = None
     seed: int | None = None
+    # Reasoning models (gpt-oss, Gemini) spend hidden tokens thinking; "low" suits simple
+    # structured tasks such as judging. Not every model accepts it (Groq's qwen rejects "low").
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 class Usage(BaseModel):

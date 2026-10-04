@@ -168,3 +168,16 @@ async def test_client_errors_are_rejections_with_status(
         await provider.complete(REQ, model="m1")
 
     assert err.value.status == status
+
+
+async def test_sends_reasoning_effort_only_when_set(
+    provider: OpenAICompatProvider, http: FakeServer
+) -> None:
+    http.respond(200, json=completion({"role": "assistant", "content": "ok"}))
+
+    await provider.complete(REQ.model_copy(update={"reasoning_effort": "low"}), model="m1")
+    await provider.complete(REQ, model="m1")
+
+    with_effort, without = (r.content.replace(b" ", b"") for r in http.requests[-2:])
+    assert b'"reasoning_effort":"low"' in with_effort
+    assert b"reasoning_effort" not in without

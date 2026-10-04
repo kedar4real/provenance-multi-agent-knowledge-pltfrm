@@ -66,7 +66,8 @@ async def complete_json(llm: CachedLLM, role: str, system: str, user: str) -> di
     request = ChatRequest(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         json_mode=role == JUDGE_ROLE,
-        max_tokens=900,
+        reasoning_effort="low" if role == JUDGE_ROLE else None,
+        max_tokens=1500,  # headroom for hidden reasoning tokens (see generate.py)
     )
     for wait_s in (*RATE_LIMIT_WAITS_S, None):
         try:

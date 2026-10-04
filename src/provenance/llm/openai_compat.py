@@ -70,6 +70,8 @@ def _payload(request: ChatRequest, model: str) -> dict[str, Any]:
             payload["top_logprobs"] = request.top_logprobs
     if request.seed is not None:
         payload["seed"] = request.seed
+    if request.reasoning_effort is not None:
+        payload["reasoning_effort"] = request.reasoning_effort
     return payload
 
 
