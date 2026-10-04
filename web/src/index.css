@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* "Annotated filing": paper, ink, and one highlighter. Every color maps to a token below;
+   the highlighter (mark) is the only accent and only ever marks evidence or focus. */
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, sans-serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-paper: oklch(0.985 0.005 85);
+  --color-sheet: oklch(1 0 0);
+  --color-inset: oklch(0.965 0.006 85);
+  --color-rule: oklch(0.905 0.008 85);
+  --color-rule-strong: oklch(0.82 0.01 85);
+
+  --color-ink: oklch(0.23 0.012 260);
+  --color-ink-2: oklch(0.42 0.012 260);
+  --color-ink-3: oklch(0.55 0.01 260);
+  --color-ink-4: oklch(0.68 0.008 260);
+
+  --color-mark: oklch(0.91 0.13 95);
+  --color-mark-strong: oklch(0.78 0.15 85);
+  --color-mark-ink: oklch(0.42 0.09 70);
+
+  --color-danger: oklch(0.52 0.16 28);
+  --color-ok: oklch(0.55 0.11 150);
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-paper: oklch(0.19 0.008 260);
+      --color-sheet: oklch(0.22 0.009 260);
+      --color-inset: oklch(0.17 0.008 260);
+      --color-rule: oklch(0.3 0.01 260);
+      --color-rule-strong: oklch(0.4 0.012 260);
+      --color-ink: oklch(0.94 0.006 85);
+      --color-ink-2: oklch(0.8 0.008 85);
+      --color-ink-3: oklch(0.66 0.008 85);
+      --color-ink-4: oklch(0.52 0.008 85);
+      --color-mark: oklch(0.45 0.09 85);
+      --color-mark-strong: oklch(0.72 0.13 85);
+      --color-mark-ink: oklch(0.86 0.1 90);
+      --color-danger: oklch(0.7 0.14 28);
+      --color-ok: oklch(0.72 0.11 150);
+    }
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-paper font-sans text-ink;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-mark-strong);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-mark);
+    color: var(--color-ink);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* A cited span: a highlighter stroke, not a box. */
+@utility evidence {
+  background: linear-gradient(transparent 12%, var(--color-mark) 12%, var(--color-mark) 88%, transparent 88%);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  padding-inline: 0.12em;
+  color: var(--color-ink);
+}
