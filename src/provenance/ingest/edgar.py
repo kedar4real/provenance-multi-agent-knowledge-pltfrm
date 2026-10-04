@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+_SUBMISSIONS_PAGE_URL = "https://data.sec.gov/submissions/{name}"
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 _ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/{document}"
 
@@ -61,28 +62,18 @@ class EdgarClient:
         return {r["ticker"]: (f"{r['cik_str']:010d}", r["title"]) for r in rows.values()}
 
     async def ten_k_filings(self, cik: str, limit: int) -> list[FilingRef]:
-        """Most recent original 10-K filings (amendments excluded), newest first."""
+        """Most recent original 10-K filings (amendments excluded), newest first.
+
+        `recent` holds at least a year of filings; heavy filers (big banks file tens of
+        thousands of notes a year) push older 10-Ks into extra pages, read only if needed.
+        """
         data = json.loads(await self._get(_SUBMISSIONS_URL.format(cik=cik)))
-        recent = data["filings"]["recent"]
-        rows = zip(
-            recent["form"],
-            recent["accessionNumber"],
-            recent["filingDate"],
-            recent["reportDate"],
-            recent["primaryDocument"],
-            strict=True,
-        )
-        refs = [
-            FilingRef(
-                cik=cik,
-                accession=accession,
-                filed=date.fromisoformat(filed),
-                report_date=date.fromisoformat(report),
-                primary_document=document,
-            )
-            for form, accession, filed, report, document in rows
-            if form == "10-K"
-        ]
+        refs = _ten_ks(cik, data["filings"]["recent"])
+        for page in data["filings"].get("files", []):
+            if len(refs) >= limit:
+                break
+            older = json.loads(await self._get(_SUBMISSIONS_PAGE_URL.format(name=page["name"])))
+            refs += _ten_ks(cik, older)
         return refs[:limit]
 
     async def document_html(self, ref: FilingRef) -> str:
@@ -122,3 +113,25 @@ def _write_atomic(path: Path, body: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(body, encoding="utf-8")
     tmp.replace(path)
+
+
+def _ten_ks(cik: str, columns: dict[str, list[str]]) -> list[FilingRef]:
+    rows = zip(
+        columns["form"],
+        columns["accessionNumber"],
+        columns["filingDate"],
+        columns["reportDate"],
+        columns["primaryDocument"],
+        strict=True,
+    )
+    return [
+        FilingRef(
+            cik=cik,
+            accession=accession,
+            filed=date.fromisoformat(filed),
+            report_date=date.fromisoformat(report),
+            primary_document=document,
+        )
+        for form, accession, filed, report, document in rows
+        if form == "10-K"
+    ]

@@ -48,6 +48,15 @@ class DocumentRecord:
 
 
 def upsert_company(conn: psycopg.Connection, cik: str, ticker: str, name: str, sector: str) -> None:
+    """A ticker that moved to a different filer (CIK) takes its place: the old filer's rows
+    are removed first, since tickers are unique."""
+    stale = conn.execute(
+        "SELECT cik FROM companies WHERE ticker = %s AND cik <> %s", (ticker, cik)
+    ).fetchall()
+    for (old_cik,) in stale:
+        conn.execute("DELETE FROM documents WHERE cik = %s", (old_cik,))
+        conn.execute("DELETE FROM financial_facts WHERE cik = %s", (old_cik,))
+        conn.execute("DELETE FROM companies WHERE cik = %s", (old_cik,))
     conn.execute(
         "INSERT INTO companies (cik, ticker, name, sector) VALUES (%s, %s, %s, %s)"
         " ON CONFLICT (cik) DO UPDATE SET ticker = EXCLUDED.ticker, name = EXCLUDED.name,"

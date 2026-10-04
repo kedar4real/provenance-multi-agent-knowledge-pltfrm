@@ -49,6 +49,33 @@ SUBMISSIONS = {
 }
 
 
+def _columns(rows: list[tuple[str, str, str, str, str]]) -> dict[str, list[str]]:
+    keys = ("form", "accessionNumber", "filingDate", "reportDate", "primaryDocument")
+    return {k: [r[i] for r in rows] for i, k in enumerate(keys)}
+
+
+# A heavy filer: "recent" holds ~1 year of filings, older ones live in extra pages.
+BANK_SUBMISSIONS = {
+    "filings": {
+        "recent": _columns(
+            [
+                ("424B2", "n1", "2026-03-01", "", "n1.htm"),
+                ("10-K", "0000019617-26-000001", "2026-02-13", "2025-12-31", "jpm-2025.htm"),
+                ("424B2", "n2", "2025-10-03", "", "n2.htm"),
+            ]
+        ),
+        "files": [{"name": "CIK0000019617-submissions-001.json"}],
+    }
+}
+BANK_OLDER_PAGE = _columns(
+    [
+        ("424B2", "n3", "2025-09-01", "", "n3.htm"),
+        ("10-K", "0000019617-25-000001", "2025-02-14", "2024-12-31", "jpm-2024.htm"),
+        ("10-K", "0000019617-24-000001", "2024-02-16", "2023-12-31", "jpm-2023.htm"),
+    ]
+)
+
+
 class FakeSec:
     def __init__(self) -> None:
         self.requests: list[httpx2.Request] = []
@@ -58,6 +85,10 @@ class FakeSec:
         url = str(request.url)
         if url.endswith("/submissions/CIK0000320193.json"):
             return httpx2.Response(200, json=SUBMISSIONS)
+        if url.endswith("/submissions/CIK0000019617.json"):
+            return httpx2.Response(200, json=BANK_SUBMISSIONS)
+        if url.endswith("/submissions/CIK0000019617-submissions-001.json"):
+            return httpx2.Response(200, json=BANK_OLDER_PAGE)
         if url.endswith("company_tickers.json"):
             return httpx2.Response(
                 200, json={"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
@@ -101,6 +132,22 @@ async def test_lists_most_recent_original_10k_filings(sec: FakeSec, tmp_path: Pa
     assert refs[0].url == (
         "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
     )
+
+
+async def test_reads_older_pages_when_recent_filings_are_not_enough(
+    sec: FakeSec, tmp_path: Path
+) -> None:
+    refs = await client(sec, tmp_path).ten_k_filings("0000019617", limit=2)
+
+    assert [r.accession for r in refs] == ["0000019617-26-000001", "0000019617-25-000001"]
+
+
+async def test_older_pages_are_skipped_when_recent_filings_suffice(
+    sec: FakeSec, tmp_path: Path
+) -> None:
+    await client(sec, tmp_path).ten_k_filings("0000019617", limit=1)
+
+    assert not any("submissions-001" in str(r.url) for r in sec.requests)
 
 
 async def test_documents_are_cached_on_disk(sec: FakeSec, tmp_path: Path) -> None:

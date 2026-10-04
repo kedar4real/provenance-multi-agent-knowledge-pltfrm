@@ -166,3 +166,21 @@ def test_ingested_rows_are_scoped_to_the_sector(
     app.execute(sql, params)
 
     assert (count(app, "SELECT count(*) FROM chunks") > 0) is visible
+
+
+def test_a_pinned_cik_overrides_the_ticker_map_and_replaces_the_stale_row(
+    ingested: psycopg.Connection, migrated: Settings
+) -> None:
+    # The ticker map still says TEST -> CIK 0000000001 (already ingested above), but the
+    # corpus pins TEST to a different filer: the old row and everything under it must go.
+    pinned = CorpusCompany(ticker="TEST", sector="tech", cik="0000000002", name="Test Corp Old")
+    with psycopg.connect(migrated.owner_dsn) as conn:
+        import asyncio
+
+        asyncio.run(ingest_company(pinned, FakeSource(), FakeEmbedder(), conn, filings=1))
+
+    companies = ingested.execute("SELECT cik, ticker, name FROM companies").fetchall()
+    assert companies == [("0000000002", "TEST", "Test Corp Old")]
+    assert count(ingested, "SELECT count(*) FROM documents WHERE cik = '0000000001'") == 0
+    assert count(ingested, "SELECT count(*) FROM financial_facts WHERE cik = '0000000001'") == 0
+    assert count(ingested, "SELECT count(*) FROM documents WHERE cik = '0000000002'") == 1

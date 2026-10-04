@@ -56,10 +56,13 @@ async def ingest_company(
     conn: psycopg.Connection,
     filings: int,
 ) -> list[FilingReport]:
-    tickers = await source.ticker_map()
-    if company.ticker not in tickers:
-        raise ValueError(f"ticker {company.ticker} not found in SEC's ticker list")
-    cik, name = tickers[company.ticker]
+    if company.cik and company.name:
+        cik, name = company.cik, company.name
+    else:
+        tickers = await source.ticker_map()
+        if company.ticker not in tickers:
+            raise ValueError(f"ticker {company.ticker} not found in SEC's ticker list")
+        cik, name = tickers[company.ticker]
     facts = annual_facts(cik, await source.company_facts(cik))
 
     def store_company() -> None:
