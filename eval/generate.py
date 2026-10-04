@@ -92,7 +92,10 @@ Given one passage, write ONE question that a financial analyst might ask and tha
 passage answers specifically and completely.
 Rules:
 - Name the company. Mention the fiscal year only if the passage is specific to that year.
-- Do not copy phrases of 4+ words from the passage; use your own words.
+- Use the vocabulary an analyst who follows the company would use: the filing's own
+  names for products, segments, programs and metrics are fine (e.g. "Executive members",
+  "net interest income"). Do not copy whole sentences or clauses, and do not put the
+  answer in the question.
 - Not a yes/no question. Not answerable from general knowledge alone.
 - If the passage is boilerplate, a table fragment, or too vague to support a specific
   question, set "usable" to false.
@@ -102,8 +105,13 @@ CROSS_PROMPT = """You write evaluation questions for an analyst assistant over S
 You get a reported figure from the company's financial data and a passage from the same
 10-K's MD&A. Write ONE question that needs BOTH: the figure (from the financial data) and
 the explanation of what drove it (from the passage).
-Rules: name the company and fiscal year; do not copy 4+ word phrases from the passage;
-if the passage does not explain what drove this figure, set "usable" to false.
+Rules:
+- Name the company and fiscal year.
+- Use the vocabulary an analyst who follows the company would use: the filing's own
+  names for products, segments, programs and metrics are fine (e.g. "Executive members",
+  "net interest income"). Do not copy whole sentences or clauses, and do not put the
+  answer in the question.
+- If the passage does not explain what drove this figure, set "usable" to false.
 Return JSON: {"usable": bool, "question": str, "answer": str}"""
 
 PARAPHRASE_PROMPT = """Rephrase this question the way a financial analyst would naturally ask
@@ -116,7 +124,9 @@ Keep only if ALL hold:
 1. standalone: understandable without seeing the passage (names the company);
 2. grounded: the evidence fully supports the reference answer;
 3. specific: it can't be answered from general knowledge alone;
-4. not a near-verbatim copy of the evidence.
+4. not a near-verbatim copy of the evidence;
+5. useful: an analyst would plausibly ask it (not about boilerplate such as where filings
+   are posted or forward-looking-statement disclaimers).
 Return JSON: {"keep": bool, "reason": str}"""
 
 
@@ -196,7 +206,10 @@ class Generator:
                 if not out.get("usable") or not out.get("question"):
                     self.tried.add(key)
                     continue
-                keep, reason = await self.judge(out["question"], out["answer"], text)
+                if copies_passage(out["question"], text):
+                    keep, reason = False, "copies the passage (8+ word run)"
+                else:
+                    keep, reason = await self.judge(out["question"], out["answer"], text)
             except Exception as e:
                 print(f"  ! skipped {key}: {type(e).__name__}", flush=True)
                 attempts -= 1  # an outage is not an attempt at this source
@@ -425,6 +438,17 @@ def _balanced(rows: list[Any]) -> Iterator[Any]:
         for k in keys:
             if buckets[k]:
                 yield buckets[k].pop(0)
+
+
+COPY_RUN = 8  # consecutive words shared with the passage that count as copying
+
+
+def copies_passage(question: str, passage: str, run: int = COPY_RUN) -> bool:
+    """True if the question shares `run` or more consecutive words with the passage."""
+    words = [w.lower().strip(".,;:()\"'?") for w in passage.split()]
+    grams = {tuple(words[i : i + run]) for i in range(len(words) - run + 1)}
+    q = [w.lower().strip(".,;:()\"'?") for w in question.split()]
+    return any(tuple(q[i : i + run]) in grams for i in range(len(q) - run + 1))
 
 
 def _mostly_numbers(text: str) -> bool:
