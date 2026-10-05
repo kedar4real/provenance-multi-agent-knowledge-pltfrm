@@ -17,6 +17,13 @@ from redis.asyncio import Redis
 
 from provenance.api.principals import PrincipalRegistry
 from provenance.config import REPO_ROOT, Settings
+from provenance.controller.backpressure import Gate
+from provenance.controller.budget import RedisBudgetStore
+from provenance.controller.cache import AnswerCache, RedisCacheStore
+from provenance.controller.executor import Controller
+from provenance.controller.metrics import Metrics
+from provenance.controller.policy import Policy
+from provenance.llm.metering import CostFn
 from provenance.llm.router import LLMRouter
 from provenance.llm.types import ChatRequest, ChatResponse
 from provenance.retrieval.hybrid import HybridRetriever
@@ -61,6 +68,10 @@ class Resources:
     sql_pool: AsyncConnectionPool
     llm: Completer | None
     scorer: ClaimScorer | None = None
+    # M8: routing, escalation, abstention, answer cache, budgets and backpressure. None
+    # when the agent can't run (no models or keys).
+    controller: Controller | None = None
+    metrics: Metrics | None = None
 
 
 @asynccontextmanager
@@ -89,8 +100,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     scorer: ClaimScorer | None = app.state.scorer
     if scorer is None and settings.load_models:
         scorer = await asyncio.to_thread(build_scorer)
+    policy: Policy = app.state.policy or Policy.load(settings.routing_path)
+    metrics = Metrics()
+    controller = None
+    if llm is not None and retriever is not None:
+        cache = None
+        if isinstance(retriever, HybridRetriever):
+            cache = AnswerCache(RedisCacheStore(redis), retriever.embed_question, policy.cache)
+        controller = Controller(
+            policy=policy,
+            llm=llm,
+            cost=load_pricing(),
+            gate=Gate(policy.backpressure),
+            cache=cache,
+            budgets=RedisBudgetStore(redis),
+            metrics=metrics,
+        )
     app.state.resources = Resources(
-        settings, registry, pool, redis, retriever, sql_pool, llm, scorer
+        settings, registry, pool, redis, retriever, sql_pool, llm, scorer, controller, metrics
     )
     try:
         yield
@@ -116,6 +143,20 @@ def build_scorer() -> ClaimScorer:
     if calibrator is None:
         log.warning("no %s yet: answers will carry no confidence", path.name)
     return ClaimScorer(NliModel(), calibrator)
+
+
+def load_pricing() -> CostFn:
+    """API-equivalent cost per call from config/llm.yaml's reference price classes; zero
+    for roles it doesn't know (e.g. scripted test models)."""
+    from provenance.llm.factory import api_equivalent_cost_usd, load_config
+    from provenance.llm.types import Usage
+
+    config = load_config(REPO_ROOT / "config" / "llm.yaml")
+
+    def cost(role: str, usage: Usage) -> float:
+        return api_equivalent_cost_usd(config, role, usage) if role in config.roles else 0.0
+
+    return cost
 
 
 def load_router() -> LLMRouter | None:

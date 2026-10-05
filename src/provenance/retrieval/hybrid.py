@@ -66,6 +66,10 @@ class HybridRetriever:
         # The CPU models aren't made for concurrent calls; queue them instead of thrashing.
         self._model_lock = asyncio.Lock()
 
+    def embed_question(self, question: str) -> np.ndarray:
+        """The question's embedding (redacted first), e.g. for the answer cache."""
+        return self._embedder.embed_query(redact(question))
+
     @property
     def can_rerank(self) -> bool:
         return self._reranker is not None

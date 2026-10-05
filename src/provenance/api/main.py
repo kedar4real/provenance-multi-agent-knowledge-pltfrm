@@ -7,8 +7,9 @@ from fastapi import FastAPI
 from provenance.api.errors import install_error_handlers
 from provenance.api.lifespan import Completer, Retriever, lifespan
 from provenance.api.middleware import RequestContextMiddleware
-from provenance.api.routers import health, me, query, search, sources
+from provenance.api.routers import health, me, metrics, query, search, sources
 from provenance.config import Settings
+from provenance.controller.policy import Policy
 from provenance.verifier.scorer import ClaimScorer
 
 
@@ -17,8 +18,10 @@ def create_app(
     retriever: Retriever | None = None,
     llm: Completer | None = None,
     scorer: ClaimScorer | None = None,
+    policy: Policy | None = None,
 ) -> FastAPI:
-    """`retriever`, `llm` and `scorer` are for tests; the lifespan loads the real ones."""
+    """`retriever`, `llm`, `scorer` and `policy` are for tests; the lifespan loads the real
+    ones (the policy from config/routing.yaml)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = FastAPI(
         title="provenance",
@@ -30,6 +33,7 @@ def create_app(
     app.state.retriever = retriever
     app.state.llm = llm
     app.state.scorer = scorer
+    app.state.policy = policy
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     app.include_router(health.router)
@@ -37,4 +41,5 @@ def create_app(
     app.include_router(search.router)
     app.include_router(sources.router)
     app.include_router(query.router)
+    app.include_router(metrics.router)
     return app

@@ -86,3 +86,11 @@ async def test_unhandled_errors_hide_internals(offline_settings: Settings) -> No
         "message": "internal server error",
         "request_id": response.headers["X-Request-ID"],
     }
+
+
+async def test_metrics_are_served_in_prometheus_format(client: AsyncClient) -> None:
+    response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "provenance_queries_total" in response.text

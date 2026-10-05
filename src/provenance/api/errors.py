@@ -20,11 +20,14 @@ log = logging.getLogger("provenance.api")
 class ApiError(Exception):
     """Raised by routes and dependencies for expected failures."""
 
-    def __init__(self, status: int, code: str, message: str) -> None:
+    def __init__(
+        self, status: int, code: str, message: str, retry_after_s: int | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
         self.message = message
+        self.retry_after_s = retry_after_s
 
 
 def error_response(
@@ -39,7 +42,9 @@ def error_response(
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
-        headers = {"WWW-Authenticate": "ApiKey"} if exc.status == 401 else None
+        headers = {"WWW-Authenticate": "ApiKey"} if exc.status == 401 else {}
+        if exc.retry_after_s is not None:
+            headers["Retry-After"] = str(exc.retry_after_s)
         return error_response(exc.status, exc.code, exc.message, headers)
 
     @app.exception_handler(StarletteHTTPException)

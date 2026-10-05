@@ -1,11 +1,13 @@
-"""POST /v1/query end to end: real API, search, SQL role and row-level security; a scripted
-model so the run is deterministic."""
+"""POST /v1/query end to end: real API, controller, search, SQL role, row-level security and
+Redis (answer cache, budgets); a scripted model so the run is deterministic."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
 import pytest
+import redis
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
@@ -16,7 +18,7 @@ from provenance.llm.types import ChatRequest, ChatResponse, Usage
 from provenance.retrieval.hybrid import HybridRetriever
 from tests.integration.conftest import FakeEmbedder
 
-pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("corpus")]
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("corpus", "redis_db")]
 
 FACTS_SQL = (
     "SELECT c.ticker, f.fiscal_year, f.value FROM financial_facts f "
@@ -59,6 +61,13 @@ def facts(owner: psycopg.Connection) -> None:
 async def ask(
     migrated: Settings, tmp_path: Path, llm: RoleScriptedLLM, question: str
 ) -> tuple[int, list[tuple[str, dict[str, object]]]]:
+    status, _, events = await ask_full(migrated, tmp_path, llm, question)
+    return status, events
+
+
+async def ask_full(
+    migrated: Settings, tmp_path: Path, llm: RoleScriptedLLM, question: str
+) -> tuple[int, dict[str, str], list[tuple[str, dict[str, object]]]]:
     principals = tmp_path / "principals.yaml"
     principals.write_text(
         "principals:\n  tech: {display_name: Tech, groups: [analyst_tech]}\n", encoding="utf-8"
@@ -78,8 +87,8 @@ async def ask(
         ) as response,
     ):
         body = (await response.aread()).decode()
-        status = response.status_code
-    return status, parse_sse(body)
+        status, headers = response.status_code, dict(response.headers)
+    return status, headers, (parse_sse(body) if status == 200 else [])
 
 
 def parse_sse(body: str) -> list[tuple[str, dict[str, object]]]:
@@ -99,11 +108,43 @@ async def test_streams_each_step_then_a_cited_answer(migrated: Settings, tmp_pat
     status, events = await ask(migrated, tmp_path, llm, "What do tariffs do to Apple?")
 
     assert status == 200
-    assert [e for e, _ in events] == ["step", "step", "step", "step", "result"]
-    assert [d["step"] for e, d in events if e == "step"] == ["plan", "search", "write", "verify"]
+    assert [e for e, _ in events] == ["step"] * 6 + ["result"]
+    assert [d["step"] for e, d in events if e == "step"] == [
+        "route", "cache", "plan", "search", "write", "verify",
+    ]  # fmt: skip
     result = events[-1][1]
     assert result["answer"] == "Tariffs raise component costs [P1]."
     assert result["verification"]["ok"] is True  # type: ignore[index]
+    control = result["control"]
+    assert control["tier"] == "small" and control["cache"]["hit"] is False  # type: ignore[index]
+
+
+async def test_a_repeated_question_comes_from_the_permission_scoped_cache(
+    migrated: Settings, tmp_path: Path
+) -> None:
+    llm = RoleScriptedLLM(
+        {"needs_text": True, "needs_numbers": False, "sql_question": ""},
+        "Tariffs raise component costs [P1].",
+    )
+    await ask(migrated, tmp_path, llm, "What do tariffs do to Apple?")
+
+    _, events = await ask(migrated, tmp_path, llm, "what do tariffs do to Apple")
+
+    assert [d["step"] for e, d in events if e == "step"] == ["route", "cache"]
+    result = events[-1][1]
+    assert result["answer"] == "Tariffs raise component costs [P1]."
+    assert result["control"]["cache"]["kind"] == "exact"  # type: ignore[index]
+
+
+async def test_a_spent_daily_budget_is_a_429_before_any_work(
+    migrated: Settings, tmp_path: Path, redis_db: redis.Redis
+) -> None:
+    redis_db.set(f"budget:tech:{datetime.now(UTC):%Y%m%d}", 10_000_000)
+    llm = RoleScriptedLLM({"needs_text": True}, "unused")
+
+    status, headers, _ = await ask_full(migrated, tmp_path, llm, "What do tariffs do to Apple?")
+
+    assert status == 429 and int(headers["retry-after"]) > 0
 
 
 async def test_the_agent_only_sees_the_callers_rows(

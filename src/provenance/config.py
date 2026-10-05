@@ -19,5 +19,6 @@ class Settings(BaseSettings):
     sec_user_agent: str = ""
     principals_path: Path = REPO_ROOT / "config" / "principals.yaml"
     api_keys_path: Path = REPO_ROOT / "config" / "api_keys.local.json"
+    routing_path: Path = REPO_ROOT / "config" / "routing.yaml"
     db_pool_max_size: int = 10
     load_models: bool = True  # embedder + reranker at API startup; tests turn it off

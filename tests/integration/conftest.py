@@ -3,6 +3,7 @@ from collections.abc import Iterator
 import numpy as np
 import psycopg
 import pytest
+import redis
 
 from provenance.config import Settings
 from provenance.db.migrate import MIGRATIONS_DIR, apply_migrations
@@ -14,6 +15,10 @@ RESTRICTED = ["internal_restricted"]
 
 def _to_test_db(dsn: str) -> str:
     return dsn.rsplit("/", 1)[0] + "/provenance_test"
+
+
+# Tests use their own Redis database so they never touch the live API's cache or budgets.
+TEST_REDIS_DB = 15
 
 
 @pytest.fixture(scope="session")
@@ -28,8 +33,22 @@ def settings() -> Settings:
             "owner_dsn": _to_test_db(s.owner_dsn),
             "app_dsn": _to_test_db(s.app_dsn),
             "sql_ro_dsn": _to_test_db(s.sql_ro_dsn),
+            "redis_url": s.redis_url.rsplit("/", 1)[0] + f"/{TEST_REDIS_DB}",
         }
     )
+
+
+@pytest.fixture
+def redis_db(settings: Settings) -> Iterator[redis.Redis]:
+    """The test Redis database, emptied before the test."""
+    client = redis.Redis.from_url(settings.redis_url)
+    try:
+        client.ping()
+    except redis.ConnectionError:
+        pytest.skip("Redis is not running (docker compose up -d)")
+    client.flushdb()
+    yield client
+    client.close()
 
 
 @pytest.fixture(scope="session")
