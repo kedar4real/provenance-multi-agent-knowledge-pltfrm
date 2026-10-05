@@ -1,0 +1,17 @@
+# mcpgate policy for provenance-mcp (see packages/mcpgate/README.md and docs/claude-desktop.md).
+# Paths are relative to this file.
+
+callers:
+  claude-desktop:
+    tools: [whoami, search_filings, get_passage, ask]
+    rate_limit: {calls: 30, window_s: 60}
+
+descriptions: block      # a tool whose description carries instructions is hidden and refused
+outputs: redact          # tool output that reads like instructions to an AI is withheld
+first_use: require_approval  # nothing is served until an operator runs `mcpgate approve`
+on_drift: block          # a tool that changes after approval is blocked until re-approved
+pins: ../.mcpgate/pins.json
+audit: ../.mcpgate/audit.jsonl
+# The only variables the provenance-mcp process receives beyond a minimal environment.
+upstream_env: [PROVENANCE_API_KEY, PROVENANCE_API_URL]
+classifier: false

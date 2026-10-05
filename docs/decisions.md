@@ -265,3 +265,19 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - Prometheus metrics at `/metrics` (outcomes by tier, escalations, cache lookups, tokens and cost by role, latency, queue depth, breaker states). OpenTelemetry traces to Jaeger when `OTEL_EXPORTER_OTLP_ENDPOINT` is set: a span per run and per step; only scalar attributes, so answers and evidence never leave the process.
 - **Prompt caching:** prompts keep their static system text first, and providers' cached input tokens are recorded and priced. Free-tier implicit caching needs long shared prefixes, so few hits are expected; the cost report shows what was measured.
 - Claim scoring is skipped when no calibrator exists (its output would be neither shown nor used; it took 39 s on one answer while a background eval shared the CPU).
+
+## MCP (M9)
+
+### provenance-mcp is a client of the API, not of the database
+- Four tools (`whoami`, `search_filings`, `get_passage`, `ask`) call the HTTP API with an API key. MCP access therefore inherits the principal, row-level security, controller, budgets and audit log, and the MCP process holds no database credentials. The cost is one local HTTP hop; the alternative (a second, direct access path) would need every guarantee re-proved.
+- Tool results quote filing text, which is untrusted. Passages flagged at ingest are withheld from MCP results and reported; every result says quoted text is data. Errors are phrased for the calling model to act on (401: set the key; 429: budget resets at midnight UTC).
+
+### mcpgate: detection is one layer, pinning and allowlists don't depend on it
+- A separate, installable workspace package with no dependency on provenance.
+- **Deny by default:** per-caller allowlists (names or globs); an unknown caller gets no tools.
+- **Tool poisoning:** every string the model reads about a tool (name, title, description, schema descriptions, defaults, enums, property names, annotations) is scanned. Heuristics name what they found (hidden instruction tags, override phrases, concealment from the user, sensitive files, exfiltration, tool shadowing, role injection, invisible Unicode, encoded payloads); an optional local classifier is a second layer. Patterns span line breaks: real payloads wrap.
+- **Rug pulls:** SHA-256 fingerprints of the model-visible fields are pinned; a changed or new tool is blocked until `mcpgate approve`. Re-checked on every listing *and* before every call, since a definition can change between the two. Pins key on the upstream's command or URL.
+- **Outputs:** injected instructions in tool results are redacted, flagged or blocked per policy; server `instructions` are scanned too.
+- **Least environment:** a stdio upstream gets the SDK's minimal environment plus only the variables the policy names.
+- The provenance policy uses `first_use: require_approval`: nothing is served until an operator has inspected and approved.
+- Not built: a downstream Streamable HTTP listener (the gate serves stdio, the desktop-client case; upstreams can be stdio or HTTP) and a Postgres audit sink (JSONL; the API keeps its own Postgres audit log).
