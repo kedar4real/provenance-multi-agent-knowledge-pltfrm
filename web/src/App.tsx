@@ -1,7 +1,9 @@
 import { Dialog } from "@base-ui/react/dialog";
+import { Tabs } from "@base-ui/react/tabs";
 import { useRef, useState } from "react";
 
 import { AccessScope } from "./components/AccessScope";
+import { AskView } from "./components/AskView";
 import { AddIdentityButton, IdentityMenu } from "./components/IdentityMenu";
 import { HitCard } from "./components/HitCard";
 import { ResultsSummary } from "./components/ResultsSummary";
@@ -82,28 +84,51 @@ function Workspace({ identity }: { identity: Identity }) {
             : "mx-auto max-w-[90rem]"
         }
       >
-        <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-6">
-          <div className="space-y-3">
-            <SearchForm
-              params={params}
-              onChange={setParams}
-              onSubmit={() => void run()}
-              pending={search.status === "pending"}
-              disabled={false}
-            />
-            <AccessScope identity={identity} />
-          </div>
-          <Results
-            state={search}
-            selected={selected}
-            onSelect={(id) => setSelected((cur) => (cur === id ? null : id))}
-            onExample={(q) => {
-              const next = { ...params, query: q };
-              setParams(next);
-              void run(next);
-            }}
-            identityName={identity.displayName}
-          />
+        <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+          <Tabs.Root defaultValue="ask">
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <Tabs.List aria-label="Mode" className="relative flex rounded-md border border-rule bg-sheet p-0.5">
+                <Tabs.Tab
+                  value="ask"
+                  className="h-8 rounded px-3.5 text-sm text-ink-2 hover:text-ink data-active:bg-ink data-active:text-paper"
+                >
+                  Ask
+                </Tabs.Tab>
+                <Tabs.Tab
+                  value="search"
+                  className="h-8 rounded px-3.5 text-sm text-ink-2 hover:text-ink data-active:bg-ink data-active:text-paper"
+                >
+                  Search passages
+                </Tabs.Tab>
+              </Tabs.List>
+              <AccessScope identity={identity} />
+            </div>
+            <Tabs.Panel value="ask" keepMounted className="data-hidden:hidden">
+              <AskView identity={identity} onOpenSource={setSelected} />
+            </Tabs.Panel>
+            <Tabs.Panel value="search" keepMounted className="space-y-6 data-hidden:hidden">
+              <div className="space-y-3">
+                <SearchForm
+                  params={params}
+                  onChange={setParams}
+                  onSubmit={() => void run()}
+                  pending={search.status === "pending"}
+                  disabled={false}
+                />
+              </div>
+              <Results
+                state={search}
+                selected={selected}
+                onSelect={(id) => setSelected((cur) => (cur === id ? null : id))}
+                onExample={(q) => {
+                  const next = { ...params, query: q };
+                  setParams(next);
+                  void run(next);
+                }}
+                identityName={identity.displayName}
+              />
+            </Tabs.Panel>
+          </Tabs.Root>
         </main>
 
         {selected !== null && wide && (
