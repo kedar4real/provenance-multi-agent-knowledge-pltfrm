@@ -54,3 +54,29 @@ def test_feedback_names_each_problem() -> None:
     feedback = verify("It was $9.9 billion [P9].", EVIDENCE).feedback()
 
     assert "P9" in feedback and "9.9 billion" in feedback
+
+
+RND = [
+    Evidence(id="F1", kind="fact", label="d", text="ticker = AAPL, value = 34550000000.0"),
+    Evidence(id="F2", kind="fact", label="d", text="ticker = MSFT, value = 32488000000.0"),
+]
+
+
+def test_arithmetic_on_cited_numbers_is_supported() -> None:
+    answer = (
+        "Apple spent $34.55 billion [F1] and Microsoft $32.49 billion [F2]: Apple spent "
+        "$2.06 billion more [F1][F2], about 6.3% more [F1][F2], $67.04 billion combined [F1][F2]."
+    )
+
+    assert verify(answer, RND).ok
+
+
+def test_arithmetic_does_not_launder_an_invented_number() -> None:
+    assert not verify("The gap was $5.1 billion [F1][F2].", RND).ok
+
+
+def test_grouped_citations_are_read() -> None:
+    result = verify("Apple $34.55 billion and Microsoft $32.49 billion [F1, F2].", RND)
+
+    assert result.ok
+    assert verify("Revenue [P1, P9].", EVIDENCE).unknown_citations == ["P9"]

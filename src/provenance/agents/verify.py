@@ -7,7 +7,8 @@ import re
 
 from provenance.agents.types import Evidence, Verification
 
-CITATION = re.compile(r"\[([PF]\d+)\]")
+# "[P1]" or a group "[P1, F2]".
+CITATION = re.compile(r"\[([PF]\d+(?:\s*,\s*[PF]\d+)*)\]")
 DECLINE = "INSUFFICIENT_EVIDENCE"
 
 # A number, optionally with $ and a scale word: "$95.4 billion", "73.6%", "1,234".
@@ -24,6 +25,11 @@ _SCALES = {
 # both: equal at any of these scales, within this relative tolerance.
 _TABLE_SCALES = (1.0, 1e3, 1e6, 1e9)
 _TOLERANCE = 0.006
+# Derived figures (differences, sums, ratios, % changes of two cited numbers) are allowed:
+# comparing is the point of many questions. Rounded percentages get an absolute margin.
+_DERIVED_TOLERANCE = 0.01
+_PERCENT_MARGIN = 0.06
+_MAX_PAIRED = 60  # bounds the pairwise search, and the odds of a coincidental match
 
 
 def numbers_in(text: str) -> list[tuple[str, float]]:
@@ -53,6 +59,20 @@ def _supported(value: float, evidence_values: list[float]) -> bool:
     return False
 
 
+def _derived(value: float, evidence_values: list[float]) -> bool:
+    values = list(dict.fromkeys(v for v in evidence_values if v != 0))[:_MAX_PAIRED]
+    target = abs(value)
+    for i, a in enumerate(values):
+        for b in values[i + 1 :]:
+            candidates = (a + b, abs(a - b), a / b, b / a, a / b * 100, b / a * 100,
+                          abs(a - b) / abs(b) * 100, abs(a - b) / abs(a) * 100)  # fmt: skip
+            for c in candidates:
+                margin = _PERCENT_MARGIN if c < 1000 else 0.0
+                if abs(c - target) <= max(_DERIVED_TOLERANCE * abs(c), margin):
+                    return True
+    return False
+
+
 def _small_count(written: str) -> bool:
     """'3 segments', '2 years': small whole numbers are counts, not figures to verify."""
     return written.isdigit() and int(written) < 10
@@ -62,13 +82,15 @@ def verify(answer: str, evidence: list[Evidence]) -> Verification:
     if answer.strip() == DECLINE:
         return Verification(ok=True)
     by_id = {e.id: e for e in evidence}
-    cited = CITATION.findall(answer)
+    cited = [c.strip() for group in CITATION.findall(answer) for c in group.split(",")]
     unknown = sorted({c for c in cited if c not in by_id})
     cited_values = [v for c in set(cited) if c in by_id for _, v in numbers_in(by_id[c].text)]
     unsupported = [
         written
         for written, value in numbers_in(answer)
-        if not _small_count(written) and not _supported(value, cited_values)
+        if not _small_count(written)
+        and not _supported(value, cited_values)
+        and not _derived(value, cited_values)
     ]
     uncited = not cited
     return Verification(
