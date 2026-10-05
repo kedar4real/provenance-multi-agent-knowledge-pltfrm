@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from provenance.retrieval.types import Hit
 from provenance.sql.worker import SqlResult
+from provenance.verifier.scorer import ScoredClaim
 
 
 class Plan(BaseModel):
@@ -67,3 +68,7 @@ class AgentResult(BaseModel):
     revisions: int
     steps: int
     trace: list[TraceEvent]
+    # Calibrated per-claim confidence (None until a calibrator has been fit); the answer's
+    # confidence is its weakest claim's.
+    claims: list[ScoredClaim] = Field(default_factory=list)
+    confidence: float | None = None

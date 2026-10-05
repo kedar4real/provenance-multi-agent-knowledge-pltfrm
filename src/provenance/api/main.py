@@ -9,14 +9,16 @@ from provenance.api.lifespan import Completer, Retriever, lifespan
 from provenance.api.middleware import RequestContextMiddleware
 from provenance.api.routers import health, me, query, search, sources
 from provenance.config import Settings
+from provenance.verifier.scorer import ClaimScorer
 
 
 def create_app(
     settings: Settings | None = None,
     retriever: Retriever | None = None,
     llm: Completer | None = None,
+    scorer: ClaimScorer | None = None,
 ) -> FastAPI:
-    """`retriever` and `llm` are for tests; by default the lifespan loads the real ones."""
+    """`retriever`, `llm` and `scorer` are for tests; the lifespan loads the real ones."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = FastAPI(
         title="provenance",
@@ -27,6 +29,7 @@ def create_app(
     app.state.settings = settings or Settings()
     app.state.retriever = retriever
     app.state.llm = llm
+    app.state.scorer = scorer
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     app.include_router(health.router)

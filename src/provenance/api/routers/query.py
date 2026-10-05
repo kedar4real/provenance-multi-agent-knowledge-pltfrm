@@ -78,4 +78,5 @@ def _deps(resources: Resources, principal: Principal) -> AgentDeps:
         sql_worker=SqlWorker(resources.llm, resources.settings.rls_signing_key.get_secret_value()),
         search_connection=lambda: principal_transaction(resources, principal),
         sql_connection=sql_connection,
+        scorer=resources.scorer,
     )

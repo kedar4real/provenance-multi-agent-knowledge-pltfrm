@@ -21,6 +21,7 @@ from provenance.llm.router import LLMRouter
 from provenance.llm.types import ChatRequest, ChatResponse
 from provenance.retrieval.hybrid import HybridRetriever
 from provenance.retrieval.types import Mode, SearchResult
+from provenance.verifier.scorer import ClaimScorer
 
 log = logging.getLogger("provenance.api")
 
@@ -59,6 +60,7 @@ class Resources:
     # The read-only SQL role, for the agent's SQL worker. RLS applies to it too.
     sql_pool: AsyncConnectionPool
     llm: Completer | None
+    scorer: ClaimScorer | None = None
 
 
 @asynccontextmanager
@@ -84,7 +86,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     retriever: Retriever | None = app.state.retriever
     if retriever is None and settings.load_models:
         retriever = await build_retriever(pool, llm)
-    app.state.resources = Resources(settings, registry, pool, redis, retriever, sql_pool, llm)
+    scorer: ClaimScorer | None = app.state.scorer
+    if scorer is None and settings.load_models:
+        scorer = await asyncio.to_thread(build_scorer)
+    app.state.resources = Resources(
+        settings, registry, pool, redis, retriever, sql_pool, llm, scorer
+    )
     try:
         yield
     finally:
@@ -96,6 +103,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 async def _configure_connection(conn: AsyncConnection) -> None:
     await register_vector_async(conn)
     await conn.commit()  # registration queries opened a transaction; return the conn idle
+
+
+def build_scorer() -> ClaimScorer:
+    """The NLI model plus the fitted calibrator, if eval.calibration_eval has produced one;
+    without it, claims are scored but carry no confidence."""
+    from provenance.verifier.calibration import CalibratorParams
+    from provenance.verifier.nli import NliModel
+
+    path = REPO_ROOT / "config" / "calibration.json"
+    calibrator = CalibratorParams.load(path) if path.exists() else None
+    if calibrator is None:
+        log.warning("no %s yet: answers will carry no confidence", path.name)
+    return ClaimScorer(NliModel(), calibrator)
 
 
 def load_router() -> LLMRouter | None:

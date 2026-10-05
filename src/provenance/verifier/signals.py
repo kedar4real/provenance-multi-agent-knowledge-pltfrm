@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from provenance.agents.verify import is_small_count, number_derived, number_supported, numbers_in
+from provenance.verifier.numbers import is_small_count, number_derived, number_supported, numbers_in
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9'.-]*")
 _STOPWORDS = frozenset(

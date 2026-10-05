@@ -211,3 +211,31 @@ async def test_writing_degrades_to_the_small_model_when_the_large_one_is_down() 
     write_event = next(e for e in events if e.step == "write")
     assert write_event.detail["role"] == PLAN_ROLE  # serve_small
     assert write_event.detail["degraded"] is True
+
+
+class FixedNli:
+    def scores(self, evidence: list[str], claim: str) -> tuple[float, float]:
+        return (0.8, 0.0)
+
+
+async def test_answers_get_claim_confidence_when_a_scorer_is_configured() -> None:
+    from provenance.verifier.calibration import CalibratorParams
+    from provenance.verifier.scorer import ClaimScorer
+
+    scorer = ClaimScorer(FixedNli(), CalibratorParams(method="raw_nli", features=["nli_entail"]))
+    llm = ScriptedLLM(TEXT_PLAN, "Net interest income was $95.4 billion [P1].")
+    deps = AgentDeps(
+        llm, FakeSearcher([PASSAGE]), FakeSql([]), no_connection, no_connection, scorer
+    )
+
+    events, result = [], None
+    async for item in run_agent(build_graph(deps), "NII?", GROUPS):
+        if isinstance(item, AgentResult):
+            result = item
+        else:
+            events.append(item)
+
+    assert result is not None
+    assert [round(c.confidence or 0, 2) for c in result.claims] == [0.8]
+    assert result.confidence == 0.8
+    assert events[-1].step == "score"

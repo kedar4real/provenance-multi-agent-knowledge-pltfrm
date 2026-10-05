@@ -8,7 +8,7 @@ import re
 
 from pydantic import BaseModel
 
-from provenance.agents.verify import CITATION, DECLINE
+from provenance.verifier.numbers import CITATION, DECLINE
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"“($])")
 _BULLET = re.compile(r"^\s*(?:[*-]|\d+[.)])\s+")

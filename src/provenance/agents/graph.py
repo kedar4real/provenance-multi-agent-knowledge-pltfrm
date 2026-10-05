@@ -5,6 +5,7 @@ what the graph can do. Every database call runs under the caller's principal, so
 can only ever see what the caller can.
 """
 
+import asyncio
 import json
 import operator
 import time
@@ -23,6 +24,7 @@ from provenance.llm.types import ChatRequest, ChatResponse, Message
 from provenance.retrieval.types import Hit, SearchResult
 from provenance.security.pii import redact
 from provenance.sql.worker import SqlResult
+from provenance.verifier.scorer import ClaimScorer, ScoredClaim
 
 PLAN_ROLE, WRITE_ROLE = "serve_small", "serve_large"
 FALLBACK_WRITE_ROLE = "serve_small"
@@ -87,6 +89,8 @@ class AgentDeps:
     search_connection: ConnectionFactory
     # A connection as the read-only SQL role; the worker sets the principal itself.
     sql_connection: ConnectionFactory
+    # Calibrated claim confidence (M6). None skips scoring, e.g. in tests or without models.
+    scorer: ClaimScorer | None = None
 
 
 class State(TypedDict, total=False):
@@ -100,6 +104,8 @@ class State(TypedDict, total=False):
     verification: Verification | None
     revisions: int
     steps: int
+    claims: list[ScoredClaim]
+    confidence: float | None
     trace: Annotated[list[TraceEvent], operator.add]
 
 
@@ -202,7 +208,23 @@ def build_graph(deps: AgentDeps) -> Any:
         can_revise = (
             state.get("revisions", 0) < MAX_REVISIONS and state.get("steps", 0) < STEP_BUDGET
         )
-        return "write" if v is not None and not v.ok and can_revise else END
+        return "write" if v is not None and not v.ok and can_revise else "score"
+
+    async def score(state: State) -> dict[str, Any]:
+        started = time.perf_counter()
+        if deps.scorer is None or state["answer"].strip() == DECLINE:
+            return {"claims": [], "confidence": None}
+        evidence = [e.text for e in state["evidence"]]
+        top = max((h.rerank_score or 0.0 for h in state.get("passages", [])), default=None)
+        scorer = deps.scorer
+        # NLI runs on CPU; keep it off the event loop.
+        claims, confidence = await asyncio.to_thread(scorer.score, state["answer"], evidence, top)
+        detail = {"claims": len(claims), "confidence": confidence, "calibrated": scorer.calibrated}
+        return {
+            "claims": claims,
+            "confidence": confidence,
+            "trace": [_event("score", started, detail)],
+        }
 
     graph = StateGraph(State)
     graph.add_node("plan", plan)
@@ -210,12 +232,14 @@ def build_graph(deps: AgentDeps) -> Any:
     graph.add_node("sql", sql)
     graph.add_node("write", write)
     graph.add_node("verify", check)
+    graph.add_node("score", score)
     graph.add_edge(START, "plan")
     graph.add_conditional_edges("plan", route, ["search", "sql"])
     graph.add_edge("search", "write")
     graph.add_edge("sql", "write")
     graph.add_edge("write", "verify")
-    graph.add_conditional_edges("verify", after_check, ["write", END])
+    graph.add_conditional_edges("verify", after_check, ["write", "score"])
+    graph.add_edge("score", END)
     return graph.compile()
 
 
@@ -245,6 +269,8 @@ async def run_agent(
         revisions=final.get("revisions", 0),
         steps=final.get("steps", 0),
         trace=final["trace"],
+        claims=final.get("claims") or [],
+        confidence=final.get("confidence"),
     )
 
 
