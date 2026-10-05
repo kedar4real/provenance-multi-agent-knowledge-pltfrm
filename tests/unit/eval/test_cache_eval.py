@@ -15,7 +15,7 @@ def test_swaps_skip_questions_without_that_entity() -> None:
 
 
 def pair(kind: str, original: str, other: str) -> Pair:
-    return Pair(id=kind, case="c", kind=kind, original=original, other=other,  # type: ignore[arg-type]
+    return Pair(id=kind, case="c", kind=kind, original=original, other=other,
                 should_hit=kind == "paraphrase")  # fmt: skip
 
 

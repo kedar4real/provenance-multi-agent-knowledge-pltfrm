@@ -9,8 +9,11 @@ Baseline: retrieve (hybrid + rerank, top 5) -> the small model answers from thos
 only, citing [n], or says it lacks evidence. No SQL, no agents: it is the number M5 has to
 beat, and it can't answer the financial-data questions by design.
 
-Controller (M8): the agent behind the controller: routed tiers, escalation, abstention
-(once a calibrator exists) and the answer cache (in memory here). With --paraphrases, the
+Controller (M8): the agent behind the controller: routed tiers, escalation and the answer
+cache (in memory here). Run without the calibrated scorer on purpose: the calibrator is fit
+on these same questions' answers, so confidence-based abstention and escalation would be
+judged on data it was fit on. Abstention is measured by eval.selective_eval instead, with
+the calibrator fit out-of-fold by question. With --paraphrases, the
 cache-eval paraphrases are asked after the 200 originals, so cache hits are measured on
 rewordings; their share of the query set is printed in the report.
 
@@ -146,7 +149,7 @@ async def evaluate(cases: list[GoldenCase], system: str) -> list[dict[str, Any]]
                     def make_deps(metered: Completer) -> AgentDeps:
                         return AgentDeps(
                             metered, retriever, SqlWorker(metered, key), search_connection,
-                            sql_connection, scorer=controller_scorer(),
+                            sql_connection,
                         )  # fmt: skip
 
                     answered = await controller_answer(controller, make_deps, case)
@@ -237,20 +240,6 @@ def make_controller(llm: Completer, cost: Any, retriever: HybridRetriever) -> Co
     cache = AnswerCache(MemoryCacheStore(), retriever.embed_question, policy.cache)
     return Controller(policy=policy, llm=llm, cost=cost, gate=Gate(policy.backpressure),
                       cache=cache)  # fmt: skip
-
-
-_SCORER: list[Any] = []
-
-
-def controller_scorer() -> Any:
-    """The calibrated claim scorer if a calibrator has been fit, else None (no abstention
-    and no confidence-based escalation, exactly as the API behaves)."""
-    if not _SCORER:
-        from provenance.api.lifespan import build_scorer
-
-        calibrated = (REPO_ROOT / "config" / "calibration.json").exists()
-        _SCORER.append(build_scorer() if calibrated else None)
-    return _SCORER[0]
 
 
 async def controller_answer(controller: Controller, make_deps: Any, case: GoldenCase) -> Answered:

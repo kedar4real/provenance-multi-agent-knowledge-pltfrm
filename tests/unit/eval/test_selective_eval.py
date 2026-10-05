@@ -47,7 +47,7 @@ def test_confidences_are_out_of_fold_by_question_and_rank_good_answers_higher() 
     scores = answer_confidences(prepared, "platt_nli")
     results = evaluate(prepared, threshold=0.5)
 
-    assert set(scores) == {r["case"] for r in rows}  # type: ignore[misc]
+    assert set(scores) == {r["case"] for r in rows}
     assert min(scores[f"g{i}"] for i in range(10)) > max(scores[f"b{i}"] for i in range(10))
     assert results["platt_nli"]["aurc"] == pytest.approx(results["platt_nli"]["aurc_oracle"])
     assert results["platt_nli"]["at_abstain_threshold"]["kept_accuracy"] == 1.0
