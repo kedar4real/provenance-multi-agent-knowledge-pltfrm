@@ -31,6 +31,9 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.66b0",
 ]
 
+[project.scripts]
+provenance-mcp = "provenance.mcp_server.server:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
