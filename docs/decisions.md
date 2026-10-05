@@ -188,3 +188,26 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - Vite + React + Tailwind + Base UI primitives (accessible menus, dialogs, switches), guided by the ui-skills `interface-design`, `baseline-ui` and `fixing-accessibility` skills. "Annotated filing" direction: serif for filing text, one highlighter accent reserved for evidence, borders-only depth.
 - Identities are API keys kept in localStorage: right for a local demo of per-user access, not a production pattern (a real deployment would hold a session, not a raw key).
 - Reviewed from real screenshots (headless Chrome via Playwright, desktop and phone, light and dark), which caught issues code review didn't: the source panel scrolling the whole page, the provenance rail crushing text on phones, legal names in titles.
+
+### Rerank against the user's question, not the rewrite (M4 finding)
+- With rewrite on, the reranker scored passages against the rewritten query ("vehicle deliveries" for "Tesla's deliveries"), so unanswerable questions looked answerable (median top score 0.68 vs 0.14) and R@1 dropped to 0.72. Reranking against the original question fixed both: config d became the best on every metric (R@1 0.84, R@5 0.99, MRR 0.90) with the abstention signal back (0.12). The rewrite only widens the candidate pool.
+
+## Agents (M5)
+
+### Plan -> parallel workers -> write -> verify, with explicit edges
+- A LangGraph state machine. The planner (small model) decides only which workers run (filings, financial data, or both); the edges are fixed in code, so no prompt can make the agent call a tool that isn't there or loop. Search and SQL run in parallel. A step budget caps LLM calls per question (5), and a failed verification gets at most one revision.
+- **Rejected:** a free-form ReAct/tool-calling loop. More flexible, but harder to bound, test and explain; the questions here need at most two kinds of evidence, which a fixed graph covers.
+- **Checkpointing deferred.** Runs take seconds and have no human-in-the-loop step, so a checkpointer would be decoration; it belongs with M8 if long or resumable runs appear.
+
+### SQL worker: three independent layers
+- (1) A sqlglot parser guard: one SELECT, only `financial_facts` and `companies`, allowlisted functions (blocks `set_config`, `current_setting`, `pg_sleep`, `dblink`...), comments dropped, a row limit. (2) The `provenance_sql_ro` role in a read-only transaction with a 3 s timeout. (3) Row-level security under the caller's signed groups. A test shows layer 2 alone already blocks other tables. Unsafe SQL and database errors are fed back to the model once for repair.
+- Parse, never regex: comments, quoting and nesting defeat pattern matching, not a parser.
+
+### Deterministic number verification
+- Every number in an answer must appear in the evidence it cites (across table scales such as "$ 95,443 (in millions)" vs "$95.4 billion", and rounding), or be a sum, difference, ratio or % change of two cited numbers. Citations must exist. No LLM call. Catches invented figures and real figures cited to the wrong source. Known limits: matching across scales is lenient (a coincidence like 6.1% vs $6.1 billion could pass), and pairwise arithmetic could match by chance with many evidence numbers (bounded to 60 values). M6's claim-level verifier is the stronger check.
+
+### Graceful degradation, exercised for real
+- When the large model's free quota is exhausted (both providers' breakers open), the writer falls back to the small model and the trace says so; the UI shows "answered with the small model". Circuit-breaker cooldowns are capped at 10 minutes, because Gemini's retry hints ("9230 s") were sometimes far too pessimistic and long-running processes sidelined working providers for hours.
+
+### Streaming
+- `POST /v1/query` streams steps as Server-Sent Events, then the result. Auth runs before streaming (a bad key is a normal 401); each worker opens its own principal-scoped connection inside the stream instead of holding a request transaction open. The browser reads the stream with fetch (EventSource can't POST).
