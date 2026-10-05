@@ -119,12 +119,15 @@ class HybridRetriever:
             hits = await _load_hits(conn, ranked[:pool_size])
 
         reranked = False
+        # Relevance is judged against the user's question, not the rewrite, which only widens
+        # the candidate pool. Measured: scoring against the rewrite raised unanswerable
+        # questions' median top score from 0.14 to 0.68, erasing the abstention signal.
         if rerank and self._reranker is not None and hits:
             reranker = self._reranker
             with self._timed(timings, "rerank"):
                 async with self._model_lock:
                     scores = await asyncio.to_thread(
-                        reranker.score, search_query, [f"{h.context}\n{h.text}" for h in hits]
+                        reranker.score, question.text, [f"{h.context}\n{h.text}" for h in hits]
                     )
             for hit, score in zip(hits, scores, strict=True):
                 hit.rerank_score = score

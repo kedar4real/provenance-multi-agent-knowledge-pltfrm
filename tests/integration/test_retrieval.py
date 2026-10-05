@@ -315,3 +315,26 @@ async def test_source_endpoint_highlights_the_span_and_hides_other_groups(
     # A hidden source and a missing one are indistinguishable.
     assert hidden.status_code == missing.status_code == 404
     assert hidden.json()["error"]["code"] == missing.json()["error"]["code"] == "source_not_found"
+
+
+class RecordingReranker:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def score(self, query: str, passages: list[str]) -> list[float]:
+        self.queries.append(query)
+        return [0.5] * len(passages)
+
+
+async def test_rerank_judges_relevance_to_the_users_question_not_the_rewrite(
+    tech: AsyncConnection,
+) -> None:
+    # The rewrite widens the candidate pool; relevance is still judged against what was
+    # asked. Scoring against the rewrite made unanswerable questions look answerable.
+    reranker = RecordingReranker()
+    rewrite = RewrittenQuery(query="tariff exposure")
+    retriever = HybridRetriever(FakeEmbedder(), reranker, FixedRewriter(rewrite))
+
+    await retriever.search(tech, "What were Tesla's tariff costs?", k=3)
+
+    assert reranker.queries == ["What were Tesla's tariff costs?"]
