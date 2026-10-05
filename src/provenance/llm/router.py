@@ -59,6 +59,10 @@ class LLMRouter:
     def chain(self, role: str) -> list[tuple[str, str]]:
         return [(c.provider, c.model) for c in self._roles[role]]
 
+    def breaker_states(self) -> list[tuple[str, str, bool]]:
+        """(provider, model, open) for every model called so far, for the metrics."""
+        return [(p, m, not b.allow()) for (p, m), b in self._model_breakers.items()]
+
     async def complete(self, role: str, request: ChatRequest) -> ChatResponse:
         if role not in self._roles:
             raise KeyError(f"unknown LLM role '{role}'")

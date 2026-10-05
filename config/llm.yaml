@@ -24,11 +24,13 @@ price_classes:
   small:
     input_per_mtok: 1.00
     output_per_mtok: 5.00
-    reference: "Claude Haiku 4.5 list price"
+    cached_input_per_mtok: 0.10
+    reference: "Claude Haiku 4.5 list price (cache reads 0.1x input)"
   large:
     input_per_mtok: 3.00
     output_per_mtok: 15.00
-    reference: "Claude Sonnet 4.5 list price"
+    cached_input_per_mtok: 0.30
+    reference: "Claude Sonnet 4.5 list price (cache reads 0.1x input)"
 
 roles:
   serve_small:

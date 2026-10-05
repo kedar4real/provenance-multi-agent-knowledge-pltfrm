@@ -21,6 +21,8 @@ class PriceClass(BaseModel):
     input_per_mtok: float
     output_per_mtok: float
     reference: str
+    # Prompt-cache reads; defaults to the full input price for providers without caching.
+    cached_input_per_mtok: float | None = None
 
 
 class RoleSpec(BaseModel):
@@ -73,6 +75,14 @@ def api_equivalent_cost_usd(config: LLMConfig, role: str, usage: Usage) -> float
     routed-vs-baseline cost comparison.
     """
     price = config.price_classes[config.roles[role].price_class]
+    cached = min(usage.cached_input_tokens, usage.input_tokens)
+    cached_price = (
+        price.input_per_mtok
+        if price.cached_input_per_mtok is None
+        else (price.cached_input_per_mtok)
+    )
     return (
-        usage.input_tokens * price.input_per_mtok + usage.output_tokens * price.output_per_mtok
+        (usage.input_tokens - cached) * price.input_per_mtok
+        + cached * cached_price
+        + usage.output_tokens * price.output_per_mtok
     ) / 1_000_000

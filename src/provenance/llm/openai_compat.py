@@ -90,9 +90,11 @@ def _parse(raw: Any, provider: str, model: str, latency_ms: float) -> ChatRespon
         )
         for t in (choice.logprobs.content if choice.logprobs and choice.logprobs.content else [])
     ]
+    details = getattr(raw.usage, "prompt_tokens_details", None) if raw.usage else None
     usage = Usage(
         input_tokens=raw.usage.prompt_tokens if raw.usage else 0,
         output_tokens=raw.usage.completion_tokens if raw.usage else 0,
+        cached_input_tokens=(getattr(details, "cached_tokens", None) or 0) if details else 0,
     )
     return ChatResponse(
         content=msg.content or "",
