@@ -2,11 +2,19 @@
 
 uv run python -m eval.answer_eval                         # baseline, all cases
 uv run python -m eval.answer_eval --system agent          # the agent (plan/search/SQL/verify)
+uv run python -m eval.answer_eval --system controller --paraphrases   # M8 cost A/B arm
 uv run python -m eval.answer_eval --limit 20              # quick look
 
 Baseline: retrieve (hybrid + rerank, top 5) -> the small model answers from those passages
 only, citing [n], or says it lacks evidence. No SQL, no agents: it is the number M5 has to
 beat, and it can't answer the financial-data questions by design.
+
+Controller (M8): the agent behind the controller: routed tiers, escalation, abstention
+(once a calibrator exists) and the answer cache (in memory here). With --paraphrases, the
+cache-eval paraphrases are asked after the 200 originals, so cache hits are measured on
+rewordings; their share of the query set is printed in the report.
+
+Every row records the tokens and API-equivalent cost of answering (the judge excluded).
 
 Judge (RAGAS-style faithfulness, done in one call per case): split the answer into factual
 claims, mark each supported or not by the cited passages, grade the answer against the
@@ -34,11 +42,16 @@ from eval.generate import RATE_LIMIT_WAITS_S
 from eval.schema import GoldenCase
 from provenance.agents.graph import AgentDeps, build_graph, run_agent
 from provenance.agents.types import AgentResult
-from provenance.config import Settings
+from provenance.config import REPO_ROOT, Settings
+from provenance.controller.backpressure import Gate
+from provenance.controller.cache import AnswerCache, MemoryCacheStore
+from provenance.controller.executor import Controller
+from provenance.controller.policy import Policy
 from provenance.db.security import principal_sql
 from provenance.llm.cache import CachedLLM, ResponseCache
 from provenance.llm.errors import AllProvidersFailed
-from provenance.llm.factory import build_router, load_config
+from provenance.llm.factory import build_router, cost_function, load_config
+from provenance.llm.metering import Completer, MeteredLLM, RunUsage
 from provenance.llm.types import ChatRequest, Message
 from provenance.retrieval.embeddings import Embedder
 from provenance.retrieval.hybrid import HybridRetriever
@@ -47,6 +60,7 @@ from provenance.retrieval.types import Hit
 from provenance.sql.worker import SqlWorker
 
 CASES = Path("eval/golden/cases.jsonl")
+PARAPHRASES = Path("eval/golden/cache_pairs.jsonl")
 REPORTS = Path("eval/reports")
 ANSWER_ROLE, JUDGE_ROLE = "serve_small", "judge"
 TOP_K = 5
@@ -69,7 +83,7 @@ Return JSON: {"claims": [{"claim": str, "supported": bool}], "correct": "yes"|"p
 "declined": bool}"""
 
 
-async def complete_json(llm: CachedLLM, role: str, system: str, user: str) -> dict[str, Any]:
+async def complete_json(llm: Completer, role: str, system: str, user: str) -> dict[str, Any]:
     request = ChatRequest(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         json_mode=role == JUDGE_ROLE,
@@ -100,12 +114,11 @@ def passages_block(hits: list[Hit]) -> str:
 async def evaluate(cases: list[GoldenCase], system: str) -> list[dict[str, Any]]:
     settings = Settings()
     key = settings.rls_signing_key.get_secret_value()
-    llm = CachedLLM(
-        build_router(load_config(Path("config/llm.yaml"))),
-        ResponseCache(Path(".llm_cache")),
-        "read_write",
-    )
+    config = load_config(Path("config/llm.yaml"))
+    cost = cost_function(config)
+    llm = CachedLLM(build_router(config), ResponseCache(Path(".llm_cache")), "read_write")
     retriever = HybridRetriever(Embedder(threads=os.cpu_count() or 4), Reranker(), None)
+    controller = make_controller(llm, cost, retriever) if system == "controller" else None
     rows: list[dict[str, Any]] = []
     async with (
         await AsyncConnection.connect(settings.app_dsn) as conn,
@@ -126,14 +139,24 @@ async def evaluate(cases: list[GoldenCase], system: str) -> list[dict[str, Any]]
             async def sql_connection() -> AsyncIterator[Any]:
                 yield sql_conn
 
+            meter = MeteredLLM(llm, cost)  # the judge below is not metered
             try:
-                if system == "agent":
+                if controller is not None:
+
+                    def make_deps(metered: Completer) -> AgentDeps:
+                        return AgentDeps(
+                            metered, retriever, SqlWorker(metered, key), search_connection,
+                            sql_connection, scorer=controller_scorer(),
+                        )  # fmt: skip
+
+                    answered = await controller_answer(controller, make_deps, case)
+                elif system == "agent":
                     deps = AgentDeps(
-                        llm, retriever, SqlWorker(llm, key), search_connection, sql_connection
+                        meter, retriever, SqlWorker(meter, key), search_connection, sql_connection
                     )
                     answered = await agent_answer(deps, case)
                 else:
-                    answered = await baseline_answer(llm, retriever, search_connection, case)
+                    answered = await baseline_answer(meter, retriever, search_connection, case)
                 verdict = await complete_json(
                     llm, JUDGE_ROLE, JUDGE_PROMPT,
                     f"Question: {case.question}\nReference answer: {case.reference_answer}\n\n"
@@ -164,6 +187,9 @@ async def evaluate(cases: list[GoldenCase], system: str) -> list[dict[str, Any]]
                     "claim_labels": claims,
                     "evidence": answered.evidence,
                     "top_rerank": answered.top_rerank,
+                    "usage": (answered.usage or meter.usage).model_dump(exclude={"calls"}),
+                    "llm_ms": sum(c.latency_ms for c in (answered.usage or meter.usage).calls),
+                    "control": answered.control,
                 }
             )
             print(
@@ -184,10 +210,13 @@ class Answered:
     # Kept for M6 calibration: claim-level signals are computed against this evidence.
     evidence: list[dict[str, str]] = field(default_factory=list)
     top_rerank: float | None = None
+    # Controller runs meter themselves; the report keeps their decisions.
+    usage: RunUsage | None = None
+    control: dict[str, Any] | None = None
 
 
 async def baseline_answer(
-    llm: CachedLLM, retriever: HybridRetriever, search_connection: Any, case: GoldenCase
+    llm: Completer, retriever: HybridRetriever, search_connection: Any, case: GoldenCase
 ) -> Answered:
     async with search_connection() as conn:
         result = await retriever.search(conn, case.question, k=TOP_K, rewrite=False)
@@ -202,12 +231,50 @@ async def baseline_answer(
     )  # fmt: skip
 
 
+def make_controller(llm: Completer, cost: Any, retriever: HybridRetriever) -> Controller:
+    """The production policy; the answer cache in memory, so runs don't share state."""
+    policy = Policy.load(REPO_ROOT / "config" / "routing.yaml")
+    cache = AnswerCache(MemoryCacheStore(), retriever.embed_question, policy.cache)
+    return Controller(policy=policy, llm=llm, cost=cost, gate=Gate(policy.backpressure),
+                      cache=cache)  # fmt: skip
+
+
+_SCORER: list[Any] = []
+
+
+def controller_scorer() -> Any:
+    """The calibrated claim scorer if a calibrator has been fit, else None (no abstention
+    and no confidence-based escalation, exactly as the API behaves)."""
+    if not _SCORER:
+        from provenance.api.lifespan import build_scorer
+
+        calibrated = (REPO_ROOT / "config" / "calibration.json").exists()
+        _SCORER.append(build_scorer() if calibrated else None)
+    return _SCORER[0]
+
+
+async def controller_answer(controller: Controller, make_deps: Any, case: GoldenCase) -> Answered:
+    final: AgentResult | None = None
+    async for item in controller.run(case.question, "eval", case.groups, make_deps):
+        if isinstance(item, AgentResult):
+            final = item
+    assert final is not None and final.control is not None
+    answered = _answered(final)
+    answered.usage = final.control.usage
+    answered.control = final.control.model_dump(exclude={"usage"})
+    return answered
+
+
 async def agent_answer(deps: AgentDeps, case: GoldenCase) -> Answered:
     final: AgentResult | None = None
     async for item in run_agent(build_graph(deps), case.question, case.groups):
         if isinstance(item, AgentResult):
             final = item
     assert final is not None
+    return _answered(final)
+
+
+def _answered(final: AgentResult) -> Answered:
     context = "\n\n".join(f"[{e.id}] {e.label}\n{e.text}" for e in final.evidence)
     tickers = {h.ticker for h in final.passages}
     if final.sql is not None:
@@ -246,7 +313,33 @@ def summarize(rows: list[dict[str, Any]], system: str = "baseline") -> str:
         )
     leaks = [r for r in rows if r["leaked"]]
     lines += ["", f"ACL leaks in retrieved context: {len(leaks)}"]
+    lines += cost_lines(rows)
     return "\n".join(lines) + "\n"
+
+
+def cost_lines(rows: list[dict[str, Any]]) -> list[str]:
+    metered = [r for r in rows if r.get("usage")]
+    if not metered:
+        return []
+    n = len(metered)
+    tokens = sum(r["usage"]["input_tokens"] + r["usage"]["output_tokens"] for r in metered)
+    cost = sum(r["usage"]["cost_usd"] for r in metered)
+    lines = [
+        "",
+        f"Answering cost (judge excluded), {n} cases: {tokens / n:,.0f} tokens and "
+        f"${cost / n:.5f} API-equivalent per question (${cost:.4f} total).",
+    ]
+    controlled = [r["control"] for r in metered if r.get("control")]
+    if controlled:
+        tiers = {t: sum(c["tier"] == t for c in controlled) for t in ("small", "large")}
+        escalated = sum(bool(c["escalated"]) for c in controlled)
+        abstained = sum(bool(c["abstained"]) for c in controlled)
+        hits = sum(bool(c["cache"] and c["cache"]["hit"]) for c in controlled)
+        lines.append(
+            f"Controller: final tier small {tiers['small']}, large {tiers['large']}; "
+            f"escalated {escalated}; abstained {abstained}; cache hits {hits}."
+        )
+    return lines
 
 
 def first_per_category(cases: list[GoldenCase], n: int) -> list[GoldenCase]:
@@ -259,19 +352,41 @@ def first_per_category(cases: list[GoldenCase], n: int) -> list[GoldenCase]:
     return chosen
 
 
-def main(limit: int | None, system: str, per_category: int | None = None) -> None:
+def with_paraphrases(cases: list[GoldenCase]) -> list[GoldenCase]:
+    """The originals, then each cache-eval paraphrase as an extra case with the original's
+    reference answer, so the cache has seen the original by the time the rewording comes."""
+    by_id = {c.id: c for c in cases}
+    extra = []
+    for line in PARAPHRASES.read_text("utf-8").splitlines():
+        pair = json.loads(line)
+        if pair["kind"] == "paraphrase" and pair["case"] in by_id:
+            original = by_id[pair["case"]]
+            extra.append(
+                original.model_copy(update={"id": f"{original.id}-para", "question": pair["other"]})
+            )
+    return cases + extra
+
+
+def main(
+    limit: int | None, system: str, per_category: int | None = None, paraphrases: bool = False
+) -> None:
     load_dotenv(".env")
     cases = [GoldenCase.model_validate_json(x) for x in CASES.read_text("utf-8").splitlines()]
     if per_category:
         cases = first_per_category(cases, per_category)
     if limit:
         cases = cases[:limit]
+    if paraphrases:
+        cases = with_paraphrases(cases)
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     rows = asyncio.run(evaluate(cases, system))
     REPORTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
     report = summarize(rows, system)
+    if paraphrases:
+        share = sum(c.id.endswith("-para") for c in cases) / len(cases)
+        report += f"\nParaphrased questions (cache test): {share:.0%} of the query set.\n"
     (REPORTS / f"answers-{system}-{stamp}.json").write_text(json.dumps(rows, indent=2), "utf-8")
     (REPORTS / f"answers-{system}-{stamp}.md").write_text(report, "utf-8")
     print("\n" + report)
@@ -281,7 +396,10 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--system", choices=["baseline", "agent"], default="baseline")
+    parser.add_argument("--system", choices=["baseline", "agent", "controller"], default="baseline")
     parser.add_argument("--per-category", type=int, help="first N cases of each category")
+    parser.add_argument(
+        "--paraphrases", action="store_true", help="append the cache-eval paraphrases"
+    )
     args = parser.parse_args()
-    main(args.limit, args.system, args.per_category)
+    main(args.limit, args.system, args.per_category, args.paraphrases)

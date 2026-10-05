@@ -146,17 +146,10 @@ def build_scorer() -> ClaimScorer:
 
 
 def load_pricing() -> CostFn:
-    """API-equivalent cost per call from config/llm.yaml's reference price classes; zero
-    for roles it doesn't know (e.g. scripted test models)."""
-    from provenance.llm.factory import api_equivalent_cost_usd, load_config
-    from provenance.llm.types import Usage
+    """API-equivalent cost per call from config/llm.yaml's reference price classes."""
+    from provenance.llm.factory import cost_function, load_config
 
-    config = load_config(REPO_ROOT / "config" / "llm.yaml")
-
-    def cost(role: str, usage: Usage) -> float:
-        return api_equivalent_cost_usd(config, role, usage) if role in config.roles else 0.0
-
-    return cost
+    return cost_function(load_config(REPO_ROOT / "config" / "llm.yaml"))
 
 
 def load_router() -> LLMRouter | None:

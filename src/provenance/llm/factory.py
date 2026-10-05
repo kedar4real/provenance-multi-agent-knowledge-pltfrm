@@ -1,5 +1,5 @@
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import httpx2
@@ -86,3 +86,12 @@ def api_equivalent_cost_usd(config: LLMConfig, role: str, usage: Usage) -> float
         + cached * cached_price
         + usage.output_tokens * price.output_per_mtok
     ) / 1_000_000
+
+
+def cost_function(config: LLMConfig) -> Callable[[str, Usage], float]:
+    """Per-call API-equivalent cost; zero for roles the config doesn't price (test models)."""
+
+    def cost(role: str, usage: Usage) -> float:
+        return api_equivalent_cost_usd(config, role, usage) if role in config.roles else 0.0
+
+    return cost
