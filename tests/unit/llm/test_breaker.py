@@ -66,3 +66,17 @@ def test_reports_seconds_until_available() -> None:
     clock.t = 5
 
     assert breaker.seconds_until_available() == 15
+
+
+def test_a_very_long_retry_hint_is_capped_so_the_provider_is_reprobed() -> None:
+    # Gemini answered "retry after 9230s" and then served requests minutes later; trusting
+    # the hint sidelined a working provider for hours in long-running eval processes.
+    clock = Clock()
+    breaker = CircuitBreaker(now=clock, max_cooldown_s=600)
+
+    breaker.trip(cooldown_s=9230)
+
+    clock.t = 599.9
+    assert not breaker.allow()
+    clock.t = 600.0
+    assert breaker.allow()

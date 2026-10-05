@@ -15,10 +15,12 @@ class CircuitBreaker:
         now: Callable[[], float] = time.monotonic,
         failure_threshold: int = 3,
         base_cooldown_s: float = 30.0,
+        max_cooldown_s: float = 600.0,
     ) -> None:
         self._now = now
         self._failure_threshold = failure_threshold
         self._base_cooldown_s = base_cooldown_s
+        self._max_cooldown_s = max_cooldown_s
         self._open_until = 0.0
         self._failures = 0
 
@@ -29,7 +31,10 @@ class CircuitBreaker:
         return max(0.0, self._open_until - self._now())
 
     def trip(self, cooldown_s: float | None = None) -> None:
-        until = self._now() + (cooldown_s if cooldown_s is not None else self._base_cooldown_s)
+        # Retry hints can be far too pessimistic ("9230s", then fine minutes later). Capping
+        # the cooldown means one probe call per cap; if the limit is real, it re-trips.
+        cooldown = cooldown_s if cooldown_s is not None else self._base_cooldown_s
+        until = self._now() + min(cooldown, self._max_cooldown_s)
         self._open_until = max(self._open_until, until)
 
     def record_success(self) -> None:
