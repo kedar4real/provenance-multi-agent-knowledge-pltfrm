@@ -119,9 +119,22 @@ export const ITEM_TITLES: Record<string, string> = {
 // ---- Agent (/v1/query, Server-Sent Events) ---------------------------------------------
 
 export interface TraceEvent {
-  step: "plan" | "search" | "sql" | "write" | "revise" | "verify" | string;
+  step:
+    | "route" | "cache" | "plan" | "search" | "sql" | "write" | "revise" | "verify" | "score"
+    | "escalate" | "abstain" | string;
   detail: Record<string, unknown>;
   ms: number;
+}
+
+/** What the controller decided around the agent run, and what it cost (M8). */
+export interface ControlReport {
+  tier: "small" | "large";
+  tier_reasons: string[];
+  escalated: string | null;
+  abstained: string | null;
+  cache: { hit: boolean; kind: string; similarity: number | null; matched_question: string | null; ms: number } | null;
+  usage: { input_tokens: number; output_tokens: number; cached_input_tokens: number; cost_usd: number };
+  budget_left: number | null;
 }
 
 export interface Evidence {
@@ -163,6 +176,8 @@ export interface AgentResult {
   /** Calibrated per-claim confidence; null until a calibrator has been fit. */
   claims: { text: string; cited: string[]; confidence: number | null }[];
   confidence: number | null;
+  tier: "small" | "large";
+  control: ControlReport | null;
 }
 
 export type AgentEvent =

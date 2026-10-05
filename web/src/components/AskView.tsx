@@ -1,4 +1,4 @@
-import { ArrowRight, Check, CircleAlert, LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, CircleAlert, LoaderCircle, ShieldAlert, Sparkles, Zap } from "lucide-react";
 import { Fragment, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { ApiError, streamQuery, type AgentResult, type Evidence, type TraceEvent } from "../lib/api";
@@ -132,12 +132,34 @@ export function AskView({ identity, onOpenSource }: Props) {
 // ---- Steps ------------------------------------------------------------------------------
 
 const STEP_LABELS: Record<string, string> = {
+  route: "Choose a model",
+  cache: "Check earlier answers",
   plan: "Plan",
   search: "Read filings",
   sql: "Query financial data",
   write: "Write answer",
   revise: "Revise answer",
   verify: "Verify numbers and citations",
+  score: "Score each claim",
+  escalate: "Escalate to the large model",
+  abstain: "Withhold the answer",
+};
+
+const TIER_REASONS: Record<string, string> = {
+  simple: "a single lookup",
+  multiple_companies: "several companies",
+  multiple_years: "several years",
+  comparison: "a comparison",
+  calculation: "a calculation",
+  explanation: "an explanation",
+  long: "a long question",
+  routing_off: "routing is off",
+};
+
+const ESCALATION_REASONS: Record<string, string> = {
+  failed_verification: "the small model's numbers or citations still failed verification",
+  declined_with_evidence: "the small model gave up although evidence was found",
+  low_confidence: "the small model's answer scored low confidence",
 };
 
 function StepTimeline({ steps, running }: { steps: TraceEvent[]; running: boolean }) {
@@ -170,15 +192,19 @@ function StepTimeline({ steps, running }: { steps: TraceEvent[]; running: boolea
 function inProgress(steps: TraceEvent[]): string {
   const done = new Set(steps.map((s) => s.step));
   const last = steps.at(-1)?.step;
-  if (!last) return "Choosing sources…";
+  if (!last) return "Choosing a model…";
+  if (last === "route") return "Checking earlier answers…";
+  if (last === "cache") return "Choosing sources…";
+  if (last === "escalate") return steps.at(-1)?.detail.skipped ? "Finishing…" : "Rewriting with the large model…";
   if (last === "plan") {
-    const plan = steps[0]?.detail ?? {};
+    const plan = steps.find((s) => s.step === "plan")?.detail ?? {};
     const work = [plan.needs_text && "reading filings", plan.needs_numbers && "querying financial data"];
     return `${capitalize(work.filter(Boolean).join(" and "))}…`;
   }
   if ((last === "search" || last === "sql") && !done.has("write")) return "Waiting for the other source, then writing…";
   if (last === "verify" && steps.at(-1)?.detail.ok === false) return "Revising the answer…";
   if (last === "write" || last === "revise") return "Checking numbers and citations…";
+  if (last === "verify" || last === "score") return "Finishing…";
   return "Writing the answer…";
 }
 
@@ -189,6 +215,12 @@ function capitalize(text: string): string {
 function StepIcon({ step }: { step: TraceEvent }) {
   const failed = step.step === "verify" && step.detail.ok === false;
   if (failed) return <CircleAlert aria-label="needs revision" className="mt-0.5 size-4 shrink-0 text-danger" />;
+  if (step.step === "escalate")
+    return <ArrowUpRight aria-label="escalated" className="mt-0.5 size-4 shrink-0 text-ink-2" />;
+  if (step.step === "abstain")
+    return <ShieldAlert aria-label="withheld" className="mt-0.5 size-4 shrink-0 text-danger" />;
+  if (step.step === "cache" && step.detail.hit)
+    return <Zap aria-label="answered from cache" className="mt-0.5 size-4 shrink-0 text-ok" />;
   return <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-ok" />;
 }
 
@@ -196,6 +228,52 @@ function StepDetail({ step }: { step: TraceEvent }) {
   const d = step.detail;
   const line = (children: ReactNode) => <p className="mt-0.5 text-ink-3">{children}</p>;
   switch (step.step) {
+    case "route": {
+      const reasons = ((d.reasons as string[] | undefined) ?? []).map((r) => TIER_REASONS[r] ?? r);
+      return line(
+        <>
+          {d.tier === "small" ? "Small model" : "Large model"} · {reasons.join(", ")}
+        </>,
+      );
+    }
+    case "cache":
+      if (d.kind === "off" || d.kind === "error") return line(<>Not available</>);
+      if (!d.hit)
+        return line(
+          <>
+            No earlier answer
+            {typeof d.similarity === "number" && <> (closest match {Math.round(d.similarity * 100)}% similar)</>}
+          </>,
+        );
+      return line(
+        d.kind === "exact" ? (
+          <>Answered before: same question</>
+        ) : (
+          <>
+            Same question as “{String(d.matched_question)}” ({Math.round(Number(d.similarity) * 100)}% similar,
+            same companies, years and metrics)
+          </>
+        ),
+      );
+    case "escalate":
+      return line(
+        d.skipped ? (
+          <>Skipped: would exceed this question's token budget</>
+        ) : (
+          <>Because {ESCALATION_REASONS[String(d.reason)] ?? String(d.reason)}</>
+        ),
+      );
+    case "abstain":
+      return line(
+        <>
+          Confidence {Math.round(Number(d.confidence) * 100)}% is below the {Math.round(Number(d.threshold) * 100)}%
+          bar for answering
+        </>,
+      );
+    case "score":
+      return typeof d.confidence === "number"
+        ? line(<>{String(d.claims)} claims · weakest {Math.round(d.confidence * 100)}%</>)
+        : line(<>{String(d.claims)} claims · no calibrated confidence yet</>);
     case "plan": {
       const routes = [d.needs_text && "filings", d.needs_numbers && "financial data"].filter(Boolean);
       return line(<>Will use {routes.join(" and ")}</>);
@@ -248,6 +326,31 @@ function AnswerView({ result, identity, onOpenSource }: { result: AgentResult; i
   const [focusedFact, setFocusedFact] = useState<string | null>(null);
   const byId = new Map(result.evidence.map((e) => [e.id, e]));
 
+  if (result.control?.abstained) {
+    return (
+      <article className="space-y-5">
+        <div className="rounded-lg border border-danger/30 bg-inset px-5 py-4">
+          <p className="font-serif text-lg">Not confident enough to answer.</p>
+          <p className="mt-1 text-sm text-ink-2">
+            A draft was written, but its weakest claim scored {Math.round((result.confidence ?? 0) * 100)}% confidence.
+            Rather than risk a wrong answer, here is what was found, so you can read it yourself.
+          </p>
+        </div>
+        <RunSummary result={result} />
+        <EvidenceList
+          evidence={result.evidence}
+          cited={new Set()}
+          sql={result.sql}
+          focused={null}
+          onOpen={(id) => {
+            const evidence = byId.get(id);
+            if (evidence?.kind === "passage" && evidence.chunk_id !== null) onOpenSource(evidence.chunk_id);
+          }}
+        />
+      </article>
+    );
+  }
+
   if (result.declined) {
     return (
       <div className="rounded-lg border border-rule bg-inset px-5 py-4">
@@ -275,6 +378,7 @@ function AnswerView({ result, identity, onOpenSource }: { result: AgentResult; i
         <VerificationBadge result={result} />
         <ConfidenceBadge confidence={result.confidence} />
       </div>
+      <RunSummary result={result} />
       <div className="space-y-3 font-serif text-[18px] leading-[1.7] text-ink">
         {renderAnswer(result.answer, byId, openCitation)}
       </div>
@@ -356,6 +460,27 @@ function renderBold(text: string, keyBase: number): ReactNode[] {
     ) : (
       part
     ),
+  );
+}
+
+/** Which model answered, whether it came from the cache, and what it would have cost. */
+function RunSummary({ result }: { result: AgentResult }) {
+  const c = result.control;
+  if (!c) return null;
+  const tokens = c.usage.input_tokens + c.usage.output_tokens;
+  const parts = [
+    c.cache?.hit ? "From an earlier answer" : `${c.tier === "small" ? "Small" : "Large"} model`,
+    c.escalated && "escalated",
+    !c.cache?.hit && `${tokens.toLocaleString()} tokens`,
+    !c.cache?.hit && `$${c.usage.cost_usd.toFixed(4)} at list prices`,
+  ].filter(Boolean);
+  return (
+    <p
+      className="font-mono text-[12px] text-ink-4 tabular-nums"
+      title="API-equivalent cost: tokens priced at Claude Haiku (small) and Sonnet (large) list prices. The real calls ran on free tiers."
+    >
+      {parts.join(" · ")}
+    </p>
   );
 }
 
