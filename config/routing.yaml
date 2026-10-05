@@ -27,7 +27,12 @@ abstain:
 cache:
   enabled: true
   version: 1          # bump to invalidate every cached answer (e.g. after re-ingesting)
-  similarity: 0.95    # cosine similarity of question embeddings for a semantic hit
+  # Cosine similarity of question embeddings for a semantic hit. Set a priori at 0.95, then
+  # lowered to 0.90 from the cache eval sweep (eval/reports/cache-*.md): with the entity
+  # guard on, false hits stay at 0.8% at every threshold, so the threshold only trades hit
+  # rate against topic shifts the guard can't see (same company and year, other subject),
+  # which that eval doesn't measure; hence not lower.
+  similarity: 0.90
   # A hit also needs the same companies, years, numbers and metrics in both questions:
   # "Apple revenue 2024" and "Apple revenue 2023" embed almost identically.
   entity_guard: true

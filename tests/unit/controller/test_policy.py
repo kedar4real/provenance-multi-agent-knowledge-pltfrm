@@ -95,3 +95,22 @@ def test_admission_sheds_only_when_the_queue_is_full() -> None:
 def test_budget_left() -> None:
     assert check_budget(400, 1000) == 600
     assert check_budget(1200, 1000) <= 0
+
+
+def test_metric_synonyms_share_a_signature_and_different_metrics_dont() -> None:
+    assert entities("Apple net sales 2024").metrics == entities("Apple revenue 2024").metrics
+    assert entities("Apple profit 2024").metrics == ["net income"]
+    assert entities("Apple revenue 2024").metrics != entities("Apple net income 2024").metrics
+
+
+def test_typographic_hyphens_quotes_and_form_names_do_not_change_entities() -> None:
+    plain = entities("What did Coca-Cola's 10-K say about capital expenditures in 2023?")
+    fancy = entities("What did Coca\u2011Cola\u2019s 10\u2011K say about capital spending in 2023?")
+    assert plain == fancy and plain.tickers == ["KO"] and plain.numbers == []
+
+
+def test_operating_cash_flow_wordings_agree_and_dividends_per_share_are_not_eps() -> None:
+    a = entities("Pfizer's cash provided by operating activities in 2024")
+    b = entities("Pfizer's cash flow from operating activities in 2024")
+    assert a.metrics == b.metrics == ["cash flow"]
+    assert entities("PepsiCo dividend per share of common stock").metrics == ["dividend"]

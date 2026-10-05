@@ -26,13 +26,37 @@ _NAME_RE = re.compile(
 _TICKER_RE = re.compile(r"\b(" + "|".join(t for t in COMMON_NAMES if len(t) >= 2) + r")\b")
 _YEAR = re.compile(r"\b(?:FY\s?)?((?:19|20)\d{2})\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)*%?")
+_FORM = re.compile(r"\b(?:10|8)-[KQ]\b", re.IGNORECASE)  # "10-K" names a filing, not a number
+# Models write typographic hyphens, quotes and spaces (non-breaking hyphens in
+# names, curly apostrophes); match them as their ASCII forms.
+_TYPOGRAPHY = str.maketrans({
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+    "\u2018": "'", "\u2019": "'", "\u00a0": " ",
+})  # fmt: skip
 
-METRICS = (
-    "revenue", "sales", "net income", "earnings", "eps", "per share", "operating income",
-    "gross margin", "margin", "assets", "liabilities", "debt", "cash flow", "cash", "capex",
-    "capital expenditure", "r&d", "research and development", "dividend", "buyback",
-    "repurchase", "employees", "headcount", "segment", "risk", "guidance", "tax",
-)  # fmt: skip
+# Metric words -> one canonical name, so a rewording ("sales" for "revenue") keeps the same
+# signature while a different metric ("net income" for "revenue") doesn't.
+METRICS = {
+    "revenue": "revenue", "sales": "revenue", "net sales": "revenue", "top line": "revenue",
+    "net income": "net income", "profit": "net income", "net earnings": "net income",
+    "earnings": "net income", "bottom line": "net income",
+    # Not "per share": a dividend per share is a dividend, not EPS.
+    "eps": "eps", "earnings per share": "eps",
+    "operating income": "operating income", "operating profit": "operating income",
+    "gross margin": "gross margin", "margin": "margin",
+    "assets": "assets", "liabilities": "liabilities", "debt": "debt", "borrowings": "debt",
+    "cash flow": "cash flow", "operating activities": "cash flow",
+    "cash provided by": "cash flow", "cash from": "cash flow", "cash generated": "cash flow",
+    "cash": "cash", "capex": "capex",
+    "capital expenditure": "capex", "capital spending": "capex", "capital spend": "capex",
+    "r&d": "r&d", "research and development": "r&d",
+    "dividend": "dividend", "buyback": "buyback", "repurchase": "buyback",
+    "repurchasing": "buyback", "repurchased": "buyback",
+    "employees": "employees", "headcount": "employees", "workforce": "employees",
+    "staff": "employees",
+    "segment": "segment", "risk": "risk", "guidance": "guidance", "outlook": "guidance",
+    "tax": "tax",
+}  # fmt: skip
 # Plurals count as the same metric: "risks" and "risk factors" are both about risk.
 _METRIC_RE = re.compile(
     r"\b(" + "|".join(re.escape(m) for m in sorted(METRICS, key=len, reverse=True))
@@ -75,12 +99,13 @@ class Classification(BaseModel):
 
 
 def entities(question: str) -> Entities:
+    question = question.translate(_TYPOGRAPHY)
     tickers = {_NAMES[m.lower()] for m in _NAME_RE.findall(question)}
     tickers |= set(_TICKER_RE.findall(question))
     years = {int(y) for y in _YEAR.findall(question)}
-    without_years = _YEAR.sub(" ", question)
+    without_years = _YEAR.sub(" ", _FORM.sub(" ", question))
     numbers = {n.replace(",", "") for n in _NUMBER.findall(without_years)}
-    metrics = {m.lower() for m in _METRIC_RE.findall(question)}
+    metrics = {METRICS[m.lower()] for m in _METRIC_RE.findall(question)}
     return Entities(
         tickers=sorted(tickers), years=sorted(years), numbers=sorted(numbers),
         metrics=sorted(metrics),
