@@ -238,3 +238,30 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 ### ACL eval
 - Every principal x all 30 companies x 3 questions through search, plus an unrestricted SQL query per principal, deterministic and LLM-free. The README reports leaks / checks.
+
+## Controller (M8)
+
+### Pure policy, separate executor
+- `controller/policy.py` holds every decision as a pure function of `config/routing.yaml` and measured facts (select tier, escalate, abstain, admit, budget). `controller/executor.py` does the I/O (Redis, the graph, metering). Decisions are unit-tested with no model call, and each returns its reason, which reaches the trace, metrics and spans.
+
+### Rule-based classifier, not an LLM
+- Simple lookups start on the small model; comparisons, calculations, explanations, several companies or years go straight to the large one. Rules cost microseconds and no tokens, and their reasons are explainable. A wrong "simple" is cheap to recover: small-tier answers that fail verification, decline although evidence was found, or score low confidence are redone by the large model.
+- **Escalation reuses the evidence.** The graph can start at the writer, so escalating repeats only write -> verify -> score, never search or SQL. It's skipped if it would push the request past its token budget.
+
+### Abstention only on calibrated confidence
+- Below `abstain.below_confidence` the answer is withheld and the evidence shown instead. Uncalibrated scores never trigger it: acting on a raw score as if it were a probability is what M6 exists to prevent. Thresholds were set before measurement.
+- The cost A/B runs the controller **without** the scorer: the calibrator is fit on those same questions' answers, so abstention there would be judged on its training data. `eval/selective_eval.py` measures abstention instead, calibrating out-of-fold by question.
+
+### Answer cache: Redis 8 vector sets, scoped and guarded
+- Key namespace includes a hash of the caller's groups, so an answer never crosses permission scopes. Only verified, non-degraded, non-abstained answers to unflagged questions are stored.
+- **The entity guard is the safety mechanism, not the threshold.** Measured on 172 labeled pairs: a question with only the year or metric swapped embeds *closer* (median cosine 0.966) than a genuine paraphrase (0.942); embedding-only caching gives as many false hits as true ones at every threshold. Requiring the same companies, years, numbers and metrics (a vector-set attribute filter, so near-misses never compete) cuts false hits to 0.8% at every threshold.
+- The first sweep exposed guard gaps (typographic hyphens and quotes, "10-K" read as the number 10, metric synonyms); fixed as general rules, paraphrase guard passes rose from 74% to 88%. The before report is kept.
+- Threshold 0.95 (a priori) -> 0.90 from the sweep, so the hit rate quoted at 0.90 (76% of paraphrases) is measured on the set it was chosen on. Not lower: the guard can't see a topic change within the same company and year, which the pairs don't measure.
+- One known guard limitation: entities are compared as sets, so swapping one of two years already in a question goes unnoticed (the one false hit).
+
+### Cost, budgets, backpressure, observability
+- Cost is API-equivalent: real token counts x Claude Haiku/Sonnet list prices (cache reads at 0.1x); every real call is free tier. The routed/baseline **ratio** is the headline.
+- Per-caller daily token budgets in Redis (HTTP 429 with Retry-After at UTC midnight). Bounded concurrency with a short queue; beyond it HTTP 503 before the stream starts. Redis outages skip the cache and budgets rather than fail the question.
+- Prometheus metrics at `/metrics` (outcomes by tier, escalations, cache lookups, tokens and cost by role, latency, queue depth, breaker states). OpenTelemetry traces to Jaeger when `OTEL_EXPORTER_OTLP_ENDPOINT` is set: a span per run and per step; only scalar attributes, so answers and evidence never leave the process.
+- **Prompt caching:** prompts keep their static system text first, and providers' cached input tokens are recorded and priced. Free-tier implicit caching needs long shared prefixes, so few hits are expected; the cost report shows what was measured.
+- Claim scoring is skipped when no calibrator exists (its output would be neither shown nor used; it took 39 s on one answer while the injection scan shared the CPU).
