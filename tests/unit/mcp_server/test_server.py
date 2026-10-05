@@ -2,6 +2,7 @@
 the API key on every call, withheld injection-flagged passages, and errors the model can act on."""
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -126,3 +127,22 @@ async def test_an_unreachable_api_is_reported_plainly() -> None:
     result = await call("whoami", {}, down)
 
     assert result.is_error and "unreachable" in result.content[0].text
+
+
+async def test_its_tools_pass_mcpgate_with_no_false_positives(tmp_path: Path) -> None:
+    from mcpgate.audit import AuditLog
+    from mcpgate.pinning import PinStore
+    from mcpgate.policy import CallerPolicy, Policy
+    from mcpgate.proxy import Gate
+
+    policy = Policy(callers={"desk": CallerPolicy(tools=["*"])}, pins=tmp_path / "p.json")
+    async with Client(build_server(api(routes)), cache=None) as upstream:
+        gate = Gate(upstream, "provenance", policy, "desk", PinStore(policy.pins), AuditLog(None))
+        async with Client(gate.server(), cache=None) as client:
+            listed = {t.name for t in (await client.list_tools()).tools}
+            answer = await client.call_tool("ask", {"question": "Nvidia export risks?"})
+        instructions = gate.clean_instructions()  # its server instructions pass the scan too
+
+    assert listed == {"whoami", "search_filings", "get_passage", "ask"} and gate.refused == {}
+    assert not answer.is_error and answer.structured_content["answer"].endswith("[P1].")
+    assert instructions is not None and "10-K" in instructions

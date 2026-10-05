@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = "==3.12.*"
 
+[manifest]
+members = [
+    "mcpgate",
+    "provenance",
+]
+
 [[package]]
 name = "annotated-doc"
 version = "0.0.5"
@@ -849,6 +855,32 @@ wheels = [
 ]
 
 [[package]]
+name = "mcpgate"
+version = "0.1.0"
+source = { editable = "packages/mcpgate" }
+dependencies = [
+    { name = "mcp" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+classifier = [
+    { name = "torch" },
+    { name = "transformers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", specifier = ">=2.2" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "torch", marker = "extra == 'classifier'", specifier = ">=2.5" },
+    { name = "transformers", marker = "extra == 'classifier'", specifier = ">=4.50" },
+]
+provides-extras = ["classifier"]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1434,6 +1466,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "asgi-lifespan" },
+    { name = "mcpgate" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -1472,6 +1505,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "asgi-lifespan", specifier = ">=2.1.0" },
+    { name = "mcpgate", editable = "packages/mcpgate" },
     { name = "mypy", specifier = ">=1.18" },
     { name = "pre-commit", specifier = ">=4.3" },
     { name = "pytest", specifier = ">=8.4" },
