@@ -160,6 +160,9 @@ export interface AgentResult {
   revisions: number;
   steps: number;
   trace: TraceEvent[];
+  /** Calibrated per-claim confidence; null until a calibrator has been fit. */
+  claims: { text: string; cited: string[]; confidence: number | null }[];
+  confidence: number | null;
 }
 
 export type AgentEvent =

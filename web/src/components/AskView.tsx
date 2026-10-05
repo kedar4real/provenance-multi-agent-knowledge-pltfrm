@@ -271,10 +271,14 @@ function AnswerView({ result, identity, onOpenSource }: { result: AgentResult; i
 
   return (
     <article className="space-y-5">
-      <VerificationBadge result={result} />
+      <div className="flex flex-wrap items-center gap-2">
+        <VerificationBadge result={result} />
+        <ConfidenceBadge confidence={result.confidence} />
+      </div>
       <div className="space-y-3 font-serif text-[18px] leading-[1.7] text-ink">
         {renderAnswer(result.answer, byId, openCitation)}
       </div>
+      <ClaimConfidence claims={result.claims} />
       <EvidenceList
         evidence={result.evidence}
         cited={citedIds(result.answer)}
@@ -352,6 +356,57 @@ function renderBold(text: string, keyBase: number): ReactNode[] {
     ) : (
       part
     ),
+  );
+}
+
+// Bands for words, not decisions: the abstention threshold is chosen in M8 from the
+// risk-coverage curve. Below 0.5 the claim is more likely unsupported than supported.
+function confidenceWord(p: number): string {
+  if (p >= 0.85) return "high";
+  if (p >= 0.6) return "moderate";
+  if (p >= 0.5) return "low";
+  return "doubtful";
+}
+
+function ConfidenceBadge({ confidence }: { confidence: number | null }) {
+  if (confidence === null) return null;
+  return (
+    <p
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] tabular-nums",
+        confidence >= 0.6 ? "border-rule-strong text-ink-2" : "border-danger/40 text-danger",
+      )}
+      title="Calibrated probability that the answer's weakest claim is supported by the evidence"
+    >
+      Confidence {Math.round(confidence * 100)}% · {confidenceWord(confidence)}
+    </p>
+  );
+}
+
+function ClaimConfidence({ claims }: { claims: AgentResult["claims"] }) {
+  const scored = claims.filter((c): c is typeof c & { confidence: number } => c.confidence !== null);
+  if (scored.length < 2) return null;
+  return (
+    <details className="rounded-lg border border-rule bg-sheet px-4 py-3">
+      <summary className="cursor-pointer text-sm text-ink-3 hover:text-ink">
+        Confidence per claim (the answer is as strong as its weakest)
+      </summary>
+      <ul className="mt-3 space-y-2">
+        {scored.map((c, i) => (
+          <li key={i} className="grid grid-cols-[4rem_1fr] items-baseline gap-3 text-sm">
+            <span
+              className={cn(
+                "font-mono text-[12px] tabular-nums",
+                c.confidence < 0.5 ? "text-danger" : "text-ink-3",
+              )}
+            >
+              {Math.round(c.confidence * 100)}%
+            </span>
+            <span className="text-ink-2">{c.text}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
