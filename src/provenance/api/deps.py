@@ -1,6 +1,7 @@
 """Request-scoped dependencies: who is calling, and a database transaction bound to them."""
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, Request, Security
@@ -39,12 +40,13 @@ async def get_principal(
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
 
 
-async def get_db(
-    resources: ResourcesDep, principal: PrincipalDep
+@asynccontextmanager
+async def principal_transaction(
+    resources: Resources, principal: Principal
 ) -> AsyncIterator[AsyncConnection]:
-    """One transaction per request, carrying the caller's signed groups. Row-level security
-    reads them, so every query in the request sees only rows the caller may see. The
-    settings are transaction-local, so the pooled connection is clean when it's returned."""
+    """A transaction carrying the caller's signed groups. Row-level security reads them, so
+    every query in it sees only rows the caller may see. The settings are transaction-local,
+    so the pooled connection is clean when it's returned."""
     key = resources.settings.rls_signing_key.get_secret_value()
     sql, params = principal_sql(principal.groups, key)
     async with (
@@ -52,6 +54,14 @@ async def get_db(
         conn.transaction(),
     ):
         await conn.execute(sql, params)
+        yield conn
+
+
+async def get_db(
+    resources: ResourcesDep, principal: PrincipalDep
+) -> AsyncIterator[AsyncConnection]:
+    """One principal-scoped transaction per request."""
+    async with principal_transaction(resources, principal) as conn:
         yield conn
 
 

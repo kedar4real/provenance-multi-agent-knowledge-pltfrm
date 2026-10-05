@@ -19,26 +19,9 @@ from provenance.db.security import principal_sql
 from provenance.retrieval.hybrid import HybridRetriever
 from provenance.retrieval.types import RewrittenQuery, SearchFilters
 from provenance.security.pii import RedactedText
+from tests.integration.conftest import FakeEmbedder, topic_vector
 
 pytestmark = pytest.mark.integration
-
-TOPICS = ["tariff", "interest", "cloud", "restricted"]
-
-
-def topic_vector(topic: str) -> np.ndarray:
-    v = np.zeros(384, dtype=np.float32)
-    v[TOPICS.index(topic)] = 1.0
-    return v
-
-
-class FakeEmbedder:
-    """Maps a query to the first topic word it contains."""
-
-    def embed_query(self, query: RedactedText) -> np.ndarray:
-        for topic in TOPICS:
-            if topic in query.text.lower():
-                return topic_vector(topic)
-        return np.full(384, 1 / np.sqrt(384), dtype=np.float32)
 
 
 class KeywordReranker:
@@ -54,50 +37,6 @@ class FixedRewriter:
 
     async def rewrite(self, question: RedactedText) -> RewrittenQuery | None:
         return self.result
-
-
-# (ticker, fiscal year, item, text, topic, acl)
-CHUNKS = [
-    ("AAPL", 2025, "1A", "Tariffs on imported components raise costs.", "tariff", "analyst_tech"),
-    ("AAPL", 2024, "1A", "Tariff exposure in the supply chain grew.", "tariff", "analyst_tech"),
-    ("AAPL", 2025, "7", "Cloud services revenue grew; decisive quarter.", "cloud", "analyst_tech"),
-    ("JPM", 2025, "7", "Net interest income rose with rates; tariff talk.", "interest", "analyst_finance"),
-]  # fmt: skip
-COMPANIES = {"AAPL": ("0000320193", "Apple Inc."), "JPM": ("0000019617", "JPMorgan Chase & Co")}
-
-
-@pytest.fixture
-def corpus(owner: psycopg.Connection) -> None:
-    owner.execute("TRUNCATE companies, documents, chunks, financial_facts RESTART IDENTITY CASCADE")
-    for ticker, (cik, name) in COMPANIES.items():
-        owner.execute(
-            "INSERT INTO companies (cik, ticker, name, sector) VALUES (%s, %s, %s, 'x')",
-            (cik, ticker, name),
-        )
-    documents: dict[tuple[str, int], tuple[int, int]] = {}
-    for i, (ticker, year, item, text, topic, acl) in enumerate(CHUNKS):
-        cik, name = COMPANIES[ticker]
-        if (ticker, year) not in documents:
-            doc_id = owner.execute(
-                "INSERT INTO documents (source, cik, accession, title, fiscal_year, url,"
-                " acl_groups) VALUES ('10-K', %s, %s, %s, %s, %s, %s) RETURNING id",
-                (cik, f"{ticker}-{year}", f"{name} {year}", year, f"https://sec/{ticker}/{year}",
-                 [acl]),
-            ).fetchone()[0]  # type: ignore[index]  # fmt: skip
-            documents[(ticker, year)] = (doc_id, 0)
-        doc_id, _ = documents[(ticker, year)]
-        section_id = owner.execute(
-            "INSERT INTO sections (document_id, item, title, text, acl_groups)"
-            " VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (doc_id, item, f"Item {item}", text, [acl]),
-        ).fetchone()[0]  # type: ignore[index]
-        owner.execute(
-            "INSERT INTO chunks (document_id, section_id, section, chunk_index, text, char_start,"
-            " char_end, token_count, embedding, context, acl_groups)"
-            " VALUES (%s, %s, %s, %s, %s, 0, %s, 10, %s, %s, %s)",
-            (doc_id, section_id, item, i, text, len(text), str(topic_vector(topic).tolist()),
-             f"{name} ({ticker}) 10-K fiscal {year}, Item {item}", [acl]),
-        )  # fmt: skip
 
 
 async def connect_as(settings: Settings, groups: list[str]) -> AsyncConnection:
