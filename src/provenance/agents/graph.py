@@ -278,7 +278,7 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
         current_node.set("score")
         started = time.perf_counter()
         # Without a calibrator, scores are neither shown nor used: skip the CPU-heavy NLI
-        # (measured: 39 s for a 13-claim answer while the injection scan shared the CPU).
+        # (measured: 39 s for a 13-claim answer while a background eval shared the CPU).
         scorer = deps.scorer
         if scorer is None or not scorer.calibrated or state["answer"].strip() == DECLINE:
             return {"claims": [], "confidence": None}
