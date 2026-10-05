@@ -277,11 +277,13 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
     async def score(state: State) -> dict[str, Any]:
         current_node.set("score")
         started = time.perf_counter()
-        if deps.scorer is None or state["answer"].strip() == DECLINE:
+        # Without a calibrator, scores are neither shown nor used: skip the CPU-heavy NLI
+        # (measured: 39 s for a 13-claim answer while the injection scan shared the CPU).
+        scorer = deps.scorer
+        if scorer is None or not scorer.calibrated or state["answer"].strip() == DECLINE:
             return {"claims": [], "confidence": None}
         evidence = [e.text for e in state["evidence"]]
         top = max((h.rerank_score or 0.0 for h in state.get("passages", [])), default=None)
-        scorer = deps.scorer
         # NLI runs on CPU; keep it off the event loop.
         claims, confidence = await asyncio.to_thread(scorer.score, state["answer"], evidence, top)
         detail = {"claims": len(claims), "confidence": confidence, "calibrated": scorer.calibrated}
