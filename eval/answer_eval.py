@@ -21,7 +21,7 @@ import statistics
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -161,6 +161,9 @@ async def evaluate(cases: list[GoldenCase], system: str) -> list[dict[str, Any]]
                     "answer": answered.text,
                     "model": answered.model,
                     "verified": answered.verified,
+                    "claim_labels": claims,
+                    "evidence": answered.evidence,
+                    "top_rerank": answered.top_rerank,
                 }
             )
             print(
@@ -178,6 +181,9 @@ class Answered:
     context: str  # what the judge checks claims against
     tickers: set[str]  # companies in the evidence, for the ACL leak check
     verified: bool | None = None
+    # Kept for M6 calibration: claim-level signals are computed against this evidence.
+    evidence: list[dict[str, str]] = field(default_factory=list)
+    top_rerank: float | None = None
 
 
 async def baseline_answer(
@@ -189,7 +195,11 @@ async def baseline_answer(
     answer = await complete_json(
         llm, ANSWER_ROLE, ANSWER_PROMPT, f"Question: {case.question}\n\nPassages:\n{context}"
     )
-    return Answered(answer["text"], answer["model"], context, {h.ticker for h in result.hits})
+    return Answered(
+        answer["text"], answer["model"], context, {h.ticker for h in result.hits},
+        evidence=[{"id": f"P{i}", "text": h.text} for i, h in enumerate(result.hits, start=1)],
+        top_rerank=max((h.rerank_score or 0.0 for h in result.hits), default=None),
+    )  # fmt: skip
 
 
 async def agent_answer(deps: AgentDeps, case: GoldenCase) -> Answered:
@@ -203,7 +213,11 @@ async def agent_answer(deps: AgentDeps, case: GoldenCase) -> Answered:
     if final.sql is not None:
         tickers |= {str(v) for row in final.sql.rows for v in row if isinstance(v, str)}
     verified = final.verification.ok if final.verification else None
-    return Answered(final.answer, "agent", context, tickers, verified)
+    return Answered(
+        final.answer, "agent", context, tickers, verified,
+        evidence=[{"id": e.id, "text": e.text} for e in final.evidence],
+        top_rerank=max((h.rerank_score or 0.0 for h in final.passages), default=None),
+    )  # fmt: skip
 
 
 def summarize(rows: list[dict[str, Any]], system: str = "baseline") -> str:
