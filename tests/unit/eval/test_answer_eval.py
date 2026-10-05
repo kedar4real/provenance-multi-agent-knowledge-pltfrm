@@ -25,3 +25,15 @@ def test_summary_reports_correctness_faithfulness_and_declines() -> None:
     assert "| unanswerable | 1 | 0% | 0% | - | 1/1 | 1 |" in table
     assert "| all | 3 |" in table
     assert "ACL leaks in retrieved context: 0" in table
+
+
+def test_per_category_sampling_takes_the_first_n_of_each() -> None:
+    from eval.answer_eval import first_per_category
+    from eval.schema import GoldenCase
+
+    cases = [
+        GoldenCase(id=f"{cat}-{i}", category=cat, question="q", reference_answer="a")
+        for cat in ("text", "sql") for i in range(3)
+    ]  # fmt: skip
+
+    assert [c.id for c in first_per_category(cases, 2)] == ["text-0", "text-1", "sql-0", "sql-1"]

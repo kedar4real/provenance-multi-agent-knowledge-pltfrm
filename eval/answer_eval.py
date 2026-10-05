@@ -1,7 +1,8 @@
-"""Answer quality of the single-shot RAG baseline, judged claim by claim.
+"""Answer quality, judged claim by claim: the single-shot RAG baseline or the M5 agent.
 
-uv run python -m eval.answer_eval                 # all cases
-uv run python -m eval.answer_eval --limit 20      # quick look
+uv run python -m eval.answer_eval                         # baseline, all cases
+uv run python -m eval.answer_eval --system agent          # the agent (plan/search/SQL/verify)
+uv run python -m eval.answer_eval --limit 20              # quick look
 
 Baseline: retrieve (hybrid + rerank, top 5) -> the small model answers from those passages
 only, citing [n], or says it lacks evidence. No SQL, no agents: it is the number M5 has to
@@ -18,6 +19,9 @@ import json
 import os
 import statistics
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +32,8 @@ from psycopg import AsyncConnection
 
 from eval.generate import RATE_LIMIT_WAITS_S
 from eval.schema import GoldenCase
+from provenance.agents.graph import AgentDeps, build_graph, run_agent
+from provenance.agents.types import AgentResult
 from provenance.config import Settings
 from provenance.db.security import principal_sql
 from provenance.llm.cache import CachedLLM, ResponseCache
@@ -38,6 +44,7 @@ from provenance.retrieval.embeddings import Embedder
 from provenance.retrieval.hybrid import HybridRetriever
 from provenance.retrieval.rerank import Reranker
 from provenance.retrieval.types import Hit
+from provenance.sql.worker import SqlWorker
 
 CASES = Path("eval/golden/cases.jsonl")
 REPORTS = Path("eval/reports")
@@ -90,7 +97,7 @@ def passages_block(hits: list[Hit]) -> str:
     )
 
 
-async def evaluate(cases: list[GoldenCase]) -> list[dict[str, Any]]:
+async def evaluate(cases: list[GoldenCase], system: str) -> list[dict[str, Any]]:
     settings = Settings()
     key = settings.rls_signing_key.get_secret_value()
     llm = CachedLLM(
@@ -100,33 +107,46 @@ async def evaluate(cases: list[GoldenCase]) -> list[dict[str, Any]]:
     )
     retriever = HybridRetriever(Embedder(threads=os.cpu_count() or 4), Reranker(), None)
     rows: list[dict[str, Any]] = []
-    async with await AsyncConnection.connect(settings.app_dsn) as conn:
+    async with (
+        await AsyncConnection.connect(settings.app_dsn) as conn,
+        await AsyncConnection.connect(settings.sql_ro_dsn) as sql_conn,
+    ):
         await register_vector_async(conn)
         await conn.commit()
         for n, case in enumerate(cases, start=1):
-            async with conn.transaction():
-                sql, params = principal_sql(case.groups, key)
-                await conn.execute(sql, params)
-                result = await retriever.search(conn, case.question, k=TOP_K, rewrite=False)
-            context = passages_block(result.hits)
+
+            @asynccontextmanager
+            async def search_connection(groups: list[str] = case.groups) -> AsyncIterator[Any]:
+                async with conn.transaction():
+                    sql, params = principal_sql(groups, key)
+                    await conn.execute(sql, params)
+                    yield conn
+
+            @asynccontextmanager
+            async def sql_connection() -> AsyncIterator[Any]:
+                yield sql_conn
+
             try:
-                answer = await complete_json(
-                    llm, ANSWER_ROLE, ANSWER_PROMPT,
-                    f"Question: {case.question}\n\nPassages:\n{context}",
-                )  # fmt: skip
+                if system == "agent":
+                    deps = AgentDeps(
+                        llm, retriever, SqlWorker(llm, key), search_connection, sql_connection
+                    )
+                    answered = await agent_answer(deps, case)
+                else:
+                    answered = await baseline_answer(llm, retriever, search_connection, case)
                 verdict = await complete_json(
                     llm, JUDGE_ROLE, JUDGE_PROMPT,
                     f"Question: {case.question}\nReference answer: {case.reference_answer}\n\n"
-                    f"Passages:\n{context}\n\nAssistant's answer:\n{answer['text']}",
+                    f"Passages:\n{answered.context}\n\nAssistant's answer:\n{answered.text}",
                 )  # fmt: skip
             except (AllProvidersFailed, json.JSONDecodeError) as e:
                 print(f"[{n}/{len(cases)}] {case.id} skipped: {type(e).__name__}", flush=True)
                 continue
-            declined = answer["text"].strip() == DECLINE or bool(verdict.get("declined"))
+            declined = answered.text.strip() == DECLINE or bool(verdict.get("declined"))
             # A decline makes no factual claims; scoring it would inflate faithfulness.
             claims = [] if declined else verdict.get("claims") or []
             supported = sum(1 for c in claims if c.get("supported"))
-            leaked = sorted({h.ticker for h in result.hits} & set(case.forbidden_tickers))
+            leaked = sorted(answered.tickers & set(case.forbidden_tickers))
             rows.append(
                 {
                     "case": case.id,
@@ -138,8 +158,9 @@ async def evaluate(cases: list[GoldenCase]) -> list[dict[str, Any]]:
                     "supported": supported,
                     "faithfulness": supported / len(claims) if claims else None,
                     "leaked": leaked,
-                    "answer": answer["text"],
-                    "model": answer["model"],
+                    "answer": answered.text,
+                    "model": answered.model,
+                    "verified": answered.verified,
                 }
             )
             print(
@@ -150,9 +171,44 @@ async def evaluate(cases: list[GoldenCase]) -> list[dict[str, Any]]:
     return rows
 
 
-def summarize(rows: list[dict[str, Any]]) -> str:
+@dataclass
+class Answered:
+    text: str
+    model: str
+    context: str  # what the judge checks claims against
+    tickers: set[str]  # companies in the evidence, for the ACL leak check
+    verified: bool | None = None
+
+
+async def baseline_answer(
+    llm: CachedLLM, retriever: HybridRetriever, search_connection: Any, case: GoldenCase
+) -> Answered:
+    async with search_connection() as conn:
+        result = await retriever.search(conn, case.question, k=TOP_K, rewrite=False)
+    context = passages_block(result.hits)
+    answer = await complete_json(
+        llm, ANSWER_ROLE, ANSWER_PROMPT, f"Question: {case.question}\n\nPassages:\n{context}"
+    )
+    return Answered(answer["text"], answer["model"], context, {h.ticker for h in result.hits})
+
+
+async def agent_answer(deps: AgentDeps, case: GoldenCase) -> Answered:
+    final: AgentResult | None = None
+    async for item in run_agent(build_graph(deps), case.question, case.groups):
+        if isinstance(item, AgentResult):
+            final = item
+    assert final is not None
+    context = "\n\n".join(f"[{e.id}] {e.label}\n{e.text}" for e in final.evidence)
+    tickers = {h.ticker for h in final.passages}
+    if final.sql is not None:
+        tickers |= {str(v) for row in final.sql.rows for v in row if isinstance(v, str)}
+    verified = final.verification.ok if final.verification else None
+    return Answered(final.answer, "agent", context, tickers, verified)
+
+
+def summarize(rows: list[dict[str, Any]], system: str = "baseline") -> str:
     lines = [
-        f"# Answer eval: single-shot RAG baseline ({datetime.now(UTC):%Y-%m-%d %H:%M} UTC)",
+        f"# Answer eval: {system} ({datetime.now(UTC):%Y-%m-%d %H:%M} UTC)",
         "",
         "Faithfulness = share of the answer's claims supported by the retrieved passages.",
         "",
@@ -179,19 +235,31 @@ def summarize(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(limit: int | None) -> None:
+def first_per_category(cases: list[GoldenCase], n: int) -> list[GoldenCase]:
+    taken: dict[str, int] = {}
+    chosen = []
+    for case in cases:
+        if taken.get(case.category, 0) < n:
+            taken[case.category] = taken.get(case.category, 0) + 1
+            chosen.append(case)
+    return chosen
+
+
+def main(limit: int | None, system: str, per_category: int | None = None) -> None:
     load_dotenv(".env")
     cases = [GoldenCase.model_validate_json(x) for x in CASES.read_text("utf-8").splitlines()]
+    if per_category:
+        cases = first_per_category(cases, per_category)
     if limit:
         cases = cases[:limit]
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    rows = asyncio.run(evaluate(cases))
+    rows = asyncio.run(evaluate(cases, system))
     REPORTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
-    report = summarize(rows)
-    (REPORTS / f"answers-{stamp}.json").write_text(json.dumps(rows, indent=2), "utf-8")
-    (REPORTS / f"answers-{stamp}.md").write_text(report, "utf-8")
+    report = summarize(rows, system)
+    (REPORTS / f"answers-{system}-{stamp}.json").write_text(json.dumps(rows, indent=2), "utf-8")
+    (REPORTS / f"answers-{system}-{stamp}.md").write_text(report, "utf-8")
     print("\n" + report)
 
 
@@ -199,4 +267,7 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int)
-    main(parser.parse_args().limit)
+    parser.add_argument("--system", choices=["baseline", "agent"], default="baseline")
+    parser.add_argument("--per-category", type=int, help="first N cases of each category")
+    args = parser.parse_args()
+    main(args.limit, args.system, args.per_category)
