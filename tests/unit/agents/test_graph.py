@@ -8,8 +8,16 @@ from typing import Any, cast
 
 from psycopg import AsyncConnection
 
-from provenance.agents.graph import PLAN_ROLE, WRITE_ROLE, AgentDeps, build_graph, run_agent
+from provenance.agents.graph import (
+    PLAN_PROMPT,
+    PLAN_ROLE,
+    WRITE_ROLE,
+    AgentDeps,
+    build_graph,
+    run_agent,
+)
 from provenance.agents.types import AgentResult, TraceEvent
+from provenance.llm.errors import AllProvidersFailed
 from provenance.llm.types import ChatRequest, ChatResponse, Usage
 from provenance.retrieval.types import Hit, SearchFilters, SearchResult
 from provenance.sql.worker import SqlResult
@@ -36,7 +44,8 @@ class ScriptedLLM:
 
     async def complete(self, role: str, request: ChatRequest) -> ChatResponse:
         self.calls.append((role, request))
-        content = json.dumps(self.plan) if role == PLAN_ROLE else self.answers.pop(0)
+        is_plan = request.messages[0].content == PLAN_PROMPT  # the writer may share the role
+        content = json.dumps(self.plan) if is_plan else self.answers.pop(0)
         return ChatResponse(content=content, provider="f", model="f", usage=Usage(), latency_ms=1)
 
     def roles(self) -> list[str]:
@@ -183,3 +192,22 @@ async def test_the_question_is_redacted_before_any_model_sees_it() -> None:
     await run(llm, FakeSearcher([PASSAGE]), FakeSql([]), "NII? reply to jo@example.com")
 
     assert all("jo@example.com" not in (m.content or "") for _, r in llm.calls for m in r.messages)
+
+
+class LargeModelDownLLM(ScriptedLLM):
+    async def complete(self, role: str, request: ChatRequest) -> ChatResponse:
+        if role == WRITE_ROLE:
+            self.calls.append((role, request))
+            raise AllProvidersFailed(role, [])
+        return await super().complete(role, request)
+
+
+async def test_writing_degrades_to_the_small_model_when_the_large_one_is_down() -> None:
+    llm = LargeModelDownLLM(TEXT_PLAN, "Net interest income was $95.4 billion [P1].")
+
+    result, events = await run(llm, FakeSearcher([PASSAGE]), FakeSql([]), "NII?")
+
+    assert result.verification is not None and result.verification.ok
+    write_event = next(e for e in events if e.step == "write")
+    assert write_event.detail["role"] == PLAN_ROLE  # serve_small
+    assert write_event.detail["degraded"] is True

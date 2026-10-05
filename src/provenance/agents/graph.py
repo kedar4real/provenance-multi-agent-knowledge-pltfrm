@@ -18,12 +18,14 @@ from psycopg import AsyncConnection
 
 from provenance.agents.types import AgentResult, Evidence, Plan, TraceEvent, Verification
 from provenance.agents.verify import DECLINE, verify
+from provenance.llm.errors import AllProvidersFailed
 from provenance.llm.types import ChatRequest, ChatResponse, Message
 from provenance.retrieval.types import Hit, SearchResult
 from provenance.security.pii import redact
 from provenance.sql.worker import SqlResult
 
 PLAN_ROLE, WRITE_ROLE = "serve_small", "serve_large"
+FALLBACK_WRITE_ROLE = "serve_small"
 PASSAGES = 6
 MAX_FACT_ROWS = 40
 MAX_REVISIONS = 1
@@ -35,8 +37,9 @@ PLAN_PROMPT = """You route a question about SEC 10-K filings of 30 large US comp
 - needs_text: the answer is in the filings' prose (risks, strategy, explanations, outlook).
 - needs_numbers: it needs reported financial figures (revenue, net income, EPS, assets,
   debt, cash flow, R&D, capex...) or calculations on them.
-Both can be true. sql_question: if needs_numbers, the precise data request
-(companies, metrics, fiscal years); else "".
+Both can be true. sql_question: if needs_numbers, the precise data request in plain
+English, naming companies, metrics and fiscal years (NOT SQL; another model writes the
+SQL); else "".
 Return JSON: {"needs_text": bool, "needs_numbers": bool, "sql_question": str}"""
 
 WRITE_PROMPT = f"""You answer questions about SEC 10-K filings using ONLY the evidence given:
@@ -154,27 +157,37 @@ def build_graph(deps: AgentDeps) -> Any:
                 f"\n\nYour previous answer:\n{state['answer']}\n\n"
                 f"It failed verification: {previous.feedback()}. Fix only these problems."
             )
-        if not evidence:
-            answer = DECLINE
-        else:
-            response = await deps.llm.complete(
-                WRITE_ROLE,
-                ChatRequest(
-                    messages=[
-                        Message(role="system", content=WRITE_PROMPT),
-                        Message(role="user", content=prompt),
-                    ],
-                    max_tokens=1200,
-                ),
+        answer, role = DECLINE, ""
+        if evidence:
+            request = ChatRequest(
+                messages=[
+                    Message(role="system", content=WRITE_PROMPT),
+                    Message(role="user", content=prompt),
+                ],
+                max_tokens=1200,
             )
-            answer = response.content.strip()
+            # Free tiers run out: when the large model is unavailable, answer with the small
+            # one and say so in the trace rather than fail the question.
+            for role in (WRITE_ROLE, FALLBACK_WRITE_ROLE):
+                try:
+                    answer = (await deps.llm.complete(role, request)).content.strip()
+                    break
+                except AllProvidersFailed:
+                    if role == FALLBACK_WRITE_ROLE:
+                        raise
         revising = previous is not None and not previous.ok
         return {
             "evidence": evidence,
             "answer": answer,
             "revisions": state.get("revisions", 0) + (1 if revising else 0),
             "steps": state.get("steps", 0) + (1 if evidence else 0),
-            "trace": [_event("revise" if revising else "write", started, {"chars": len(answer)})],
+            "trace": [
+                _event(
+                    "revise" if revising else "write",
+                    started,
+                    {"chars": len(answer), "role": role, "degraded": role == FALLBACK_WRITE_ROLE},
+                )
+            ],
         }
 
     async def check(state: State) -> dict[str, Any]:
