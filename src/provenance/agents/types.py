@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from provenance.retrieval.types import Hit
+from provenance.security.isolation import Withheld
 from provenance.sql.worker import SqlResult
 from provenance.verifier.scorer import ScoredClaim
 
@@ -71,4 +72,8 @@ class AgentResult(BaseModel):
     # Calibrated per-claim confidence (None until a calibrator has been fit); the answer's
     # confidence is its weakest claim's.
     claims: list[ScoredClaim] = Field(default_factory=list)
+    # Retrieved passages kept away from the writer as suspected prompt injections.
+    withheld: list[Withheld] = Field(default_factory=list)
+    # Injection heuristics that matched the question itself (recorded, not blocked).
+    question_flags: list[str] = Field(default_factory=list)
     confidence: float | None = None

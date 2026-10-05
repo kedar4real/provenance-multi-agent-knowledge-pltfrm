@@ -43,6 +43,9 @@ class Hit(BaseModel):
     bm25_rank: int | None = None
     fused_score: float = 0.0
     rerank_score: float | None = None
+    # Stored at ingest by the injection scanner; None means not scanned yet.
+    injection_flagged: bool | None = None
+    injection_reasons: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):

@@ -22,6 +22,9 @@ from provenance.agents.verify import DECLINE, verify
 from provenance.llm.errors import AllProvidersFailed
 from provenance.llm.types import ChatRequest, ChatResponse, Message
 from provenance.retrieval.types import Hit, SearchResult
+from provenance.security.audit import AuditEntry, AuditSink
+from provenance.security.injection import heuristic_hits
+from provenance.security.isolation import Withheld, quarantine
 from provenance.security.pii import redact
 from provenance.sql.worker import SqlResult
 from provenance.verifier.scorer import ClaimScorer, ScoredClaim
@@ -91,6 +94,10 @@ class AgentDeps:
     sql_connection: ConnectionFactory
     # Calibrated claim confidence (M6). None skips scoring, e.g. in tests or without models.
     scorer: ClaimScorer | None = None
+    # Every tool call is audited (M7). The caller's identity is recorded with each entry.
+    audit: AuditSink | None = None
+    principal: str = "anonymous"
+    request_id: str = "-"
 
 
 class State(TypedDict, total=False):
@@ -106,12 +113,17 @@ class State(TypedDict, total=False):
     steps: int
     claims: list[ScoredClaim]
     confidence: float | None
+    withheld: list[Withheld]
+    question_flags: list[str]
     trace: Annotated[list[TraceEvent], operator.add]
 
 
 def build_graph(deps: AgentDeps) -> Any:
     async def plan(state: State) -> dict[str, Any]:
         started = time.perf_counter()
+        # Recorded, not blocked: least privilege makes a hostile question harmless, and
+        # blocking on heuristics would refuse legitimate questions that quote attacks.
+        flags = heuristic_hits(state["question"])
         decision = Plan()
         try:
             raw = await _complete_json(deps.llm, PLAN_ROLE, PLAN_PROMPT, state["question"])
@@ -126,20 +138,48 @@ def build_graph(deps: AgentDeps) -> Any:
             decision.needs_text = True
         return {
             "plan": decision,
+            "question_flags": flags,
             "steps": state.get("steps", 0) + 1,
-            "trace": [_event("plan", started, decision.model_dump())],
+            "trace": [_event("plan", started, {**decision.model_dump(), "question_flags": flags})],
         }
 
     def route(state: State) -> list[str]:
         p = state["plan"]
         return [n for n, wanted in (("search", p.needs_text), ("sql", p.needs_numbers)) if wanted]
 
+    async def audit(
+        state: State, tool: str, tool_input: str, outcome: Any, detail: dict[str, Any]
+    ) -> None:
+        if deps.audit is not None:
+            await deps.audit.write(
+                AuditEntry.build(
+                    request_id=deps.request_id,
+                    principal=deps.principal,
+                    groups=state["groups"],
+                    tool=tool,
+                    tool_input=tool_input,
+                    outcome=outcome,
+                    detail=detail,
+                )
+            )
+
     async def search(state: State) -> dict[str, Any]:
         started = time.perf_counter()
         async with deps.search_connection() as conn:
             result = await deps.searcher.search(conn, state["question"], k=PASSAGES, rewrite=False)
-        detail = {"passages": len(result.hits), "top": [h.ticker for h in result.hits[:3]]}
-        return {"passages": result.hits, "trace": [_event("search", started, detail)]}
+        # Suspected injections never reach the writer; they're reported instead.
+        kept, withheld = quarantine(result.hits)
+        detail = {
+            "passages": len(kept),
+            "top": [h.ticker for h in kept[:3]],
+            "withheld": [w.model_dump() for w in withheld],
+        }
+        await audit(state, "search", state["question"], "ok", detail)
+        return {
+            "passages": kept,
+            "withheld": withheld,
+            "trace": [_event("search", started, detail)],
+        }
 
     async def sql(state: State) -> dict[str, Any]:
         started = time.perf_counter()
@@ -147,6 +187,7 @@ def build_graph(deps: AgentDeps) -> Any:
         async with deps.sql_connection() as conn:
             result = await deps.sql_worker.answer(question, conn, state["groups"])
         detail = {"sql": result.sql, "rows": len(result.rows), "error": result.error}
+        await audit(state, "sql", question, "error" if result.error else "ok", detail)
         return {
             "sql": result,
             "steps": state.get("steps", 0) + result.attempts,
@@ -270,6 +311,8 @@ async def run_agent(
         steps=final.get("steps", 0),
         trace=final["trace"],
         claims=final.get("claims") or [],
+        withheld=final.get("withheld") or [],
+        question_flags=final.get("question_flags") or [],
         confidence=final.get("confidence"),
     )
 

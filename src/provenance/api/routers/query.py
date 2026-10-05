@@ -25,6 +25,7 @@ from provenance.api.errors import ApiError
 from provenance.api.lifespan import Resources
 from provenance.api.middleware import current_request_id
 from provenance.api.principals import Principal
+from provenance.security.audit import PostgresAudit
 from provenance.sql.worker import SqlWorker
 
 router = APIRouter(prefix="/v1", tags=["query"])
@@ -79,4 +80,7 @@ def _deps(resources: Resources, principal: Principal) -> AgentDeps:
         search_connection=lambda: principal_transaction(resources, principal),
         sql_connection=sql_connection,
         scorer=resources.scorer,
+        audit=PostgresAudit(resources.pool),
+        principal=principal.name,
+        request_id=current_request_id(),
     )

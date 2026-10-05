@@ -24,7 +24,7 @@ RERANK_POOL = 20
 
 _HITS = """
 SELECT c.id, c.document_id, co.ticker, co.name, d.fiscal_year, c.section, s.title, c.text,
-       c.context, c.char_start, c.char_end, d.url
+       c.context, c.char_start, c.char_end, d.url, c.injection_flagged, c.injection_reasons
 FROM chunks c
 JOIN documents d ON d.id = c.document_id
 JOIN sections s ON s.id = c.section_id
@@ -228,6 +228,8 @@ async def _load_hits(
                 char_start=row[9],
                 char_end=row[10],
                 url=row[11],
+                injection_flagged=row[12],
+                injection_reasons=row[13] or [],
                 dense_rank=dense_rank,
                 bm25_rank=bm25_rank,
                 fused_score=round(fused, 6),
