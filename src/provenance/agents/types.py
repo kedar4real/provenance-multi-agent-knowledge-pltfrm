@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from provenance.controller.cache import CacheLookup
+from provenance.llm.metering import RunUsage
 from provenance.retrieval.types import Hit
 from provenance.security.isolation import Withheld
 from provenance.sql.worker import SqlResult
@@ -57,6 +59,18 @@ class TraceEvent(BaseModel):
     ms: float = 0.0
 
 
+class ControlReport(BaseModel):
+    """What the controller decided around the agent run, and what the run cost."""
+
+    tier: Literal["small", "large"]
+    tier_reasons: list[str] = Field(default_factory=list)
+    escalated: str | None = None  # the reason, when a small-tier answer was redone large
+    abstained: str | None = None  # the reason, when the answer was withheld
+    cache: CacheLookup | None = None
+    usage: RunUsage = Field(default_factory=RunUsage)
+    budget_left: int | None = None  # the caller's tokens left today
+
+
 class AgentResult(BaseModel):
     question: str
     answer: str
@@ -77,3 +91,5 @@ class AgentResult(BaseModel):
     # Injection heuristics that matched the question itself (recorded, not blocked).
     question_flags: list[str] = Field(default_factory=list)
     confidence: float | None = None
+    tier: str = "large"
+    control: ControlReport | None = None

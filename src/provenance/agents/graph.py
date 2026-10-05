@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Annotated, Any, Protocol, TypedDict
+from typing import Annotated, Any, Literal, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from psycopg import AsyncConnection
@@ -20,6 +20,7 @@ from psycopg import AsyncConnection
 from provenance.agents.types import AgentResult, Evidence, Plan, TraceEvent, Verification
 from provenance.agents.verify import DECLINE, verify
 from provenance.llm.errors import AllProvidersFailed
+from provenance.llm.metering import current_node
 from provenance.llm.types import ChatRequest, ChatResponse, Message
 from provenance.retrieval.types import Hit, SearchResult
 from provenance.security.audit import AuditEntry, AuditSink
@@ -31,6 +32,12 @@ from provenance.verifier.scorer import ClaimScorer, ScoredClaim
 
 PLAN_ROLE, WRITE_ROLE = "serve_small", "serve_large"
 FALLBACK_WRITE_ROLE = "serve_small"
+# Writer roles per tier, tried in order. The controller picks the tier (M8); "large" is the
+# M5 agent: the large model, with the small one standing in when large is unavailable.
+TIER_ROLES: dict[str, tuple[str, ...]] = {
+    "large": (WRITE_ROLE, FALLBACK_WRITE_ROLE),
+    "small": (FALLBACK_WRITE_ROLE,),
+}
 PASSAGES = 6
 MAX_FACT_ROWS = 40
 MAX_REVISIONS = 1
@@ -98,11 +105,13 @@ class AgentDeps:
     audit: AuditSink | None = None
     principal: str = "anonymous"
     request_id: str = "-"
+    tier_roles: dict[str, tuple[str, ...]] | None = None  # None: TIER_ROLES
 
 
 class State(TypedDict, total=False):
     question: str
     groups: list[str]
+    tier: str
     plan: Plan
     passages: list[Hit]
     sql: SqlResult | None
@@ -118,8 +127,13 @@ class State(TypedDict, total=False):
     trace: Annotated[list[TraceEvent], operator.add]
 
 
-def build_graph(deps: AgentDeps) -> Any:
+def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> Any:
+    """The full agent, or (entry="write") just write -> verify -> score over evidence the
+    caller already has: how the controller escalates without searching again."""
+    tier_roles = deps.tier_roles or TIER_ROLES
+
     async def plan(state: State) -> dict[str, Any]:
+        current_node.set("plan")
         started = time.perf_counter()
         # Recorded, not blocked: least privilege makes a hostile question harmless, and
         # blocking on heuristics would refuse legitimate questions that quote attacks.
@@ -164,6 +178,7 @@ def build_graph(deps: AgentDeps) -> Any:
             )
 
     async def search(state: State) -> dict[str, Any]:
+        current_node.set("search")
         started = time.perf_counter()
         async with deps.search_connection() as conn:
             result = await deps.searcher.search(conn, state["question"], k=PASSAGES, rewrite=False)
@@ -182,6 +197,7 @@ def build_graph(deps: AgentDeps) -> Any:
         }
 
     async def sql(state: State) -> dict[str, Any]:
+        current_node.set("sql")
         started = time.perf_counter()
         question = state["plan"].sql_question or state["question"]
         async with deps.sql_connection() as conn:
@@ -195,18 +211,20 @@ def build_graph(deps: AgentDeps) -> Any:
         }
 
     async def write(state: State) -> dict[str, Any]:
+        previous = state.get("verification")
+        current_node.set("revise" if previous and not previous.ok else "write")
         started = time.perf_counter()
         evidence = state.get("evidence") or _evidence(state.get("passages", []), state.get("sql"))
         prompt = f"Question: {state['question']}\n\nEvidence:\n" + "\n\n".join(
             f"[{e.id}] {e.label}\n{e.text}" for e in evidence
         )
-        previous = state.get("verification")
         if previous and not previous.ok:
             prompt += (
                 f"\n\nYour previous answer:\n{state['answer']}\n\n"
                 f"It failed verification: {previous.feedback()}. Fix only these problems."
             )
         answer, role = DECLINE, ""
+        roles = tier_roles[state.get("tier", "large")]
         if evidence:
             request = ChatRequest(
                 messages=[
@@ -217,12 +235,12 @@ def build_graph(deps: AgentDeps) -> Any:
             )
             # Free tiers run out: when the large model is unavailable, answer with the small
             # one and say so in the trace rather than fail the question.
-            for role in (WRITE_ROLE, FALLBACK_WRITE_ROLE):
+            for role in roles:
                 try:
                     answer = (await deps.llm.complete(role, request)).content.strip()
                     break
                 except AllProvidersFailed:
-                    if role == FALLBACK_WRITE_ROLE:
+                    if role == roles[-1]:
                         raise
         revising = previous is not None and not previous.ok
         return {
@@ -234,7 +252,12 @@ def build_graph(deps: AgentDeps) -> Any:
                 _event(
                     "revise" if revising else "write",
                     started,
-                    {"chars": len(answer), "role": role, "degraded": role == FALLBACK_WRITE_ROLE},
+                    {
+                        "chars": len(answer),
+                        "role": role,
+                        "tier": state.get("tier", "large"),
+                        "degraded": bool(role) and role != roles[0],
+                    },
                 )
             ],
         }
@@ -252,6 +275,7 @@ def build_graph(deps: AgentDeps) -> Any:
         return "write" if v is not None and not v.ok and can_revise else "score"
 
     async def score(state: State) -> dict[str, Any]:
+        current_node.set("score")
         started = time.perf_counter()
         if deps.scorer is None or state["answer"].strip() == DECLINE:
             return {"claims": [], "confidence": None}
@@ -274,7 +298,10 @@ def build_graph(deps: AgentDeps) -> Any:
     graph.add_node("write", write)
     graph.add_node("verify", check)
     graph.add_node("score", score)
-    graph.add_edge(START, "plan")
+    if entry == "write":
+        graph.add_edge(START, "write")
+    else:
+        graph.add_edge(START, "plan")
     graph.add_conditional_edges("plan", route, ["search", "sql"])
     graph.add_edge("search", "write")
     graph.add_edge("sql", "write")
@@ -285,11 +312,22 @@ def build_graph(deps: AgentDeps) -> Any:
 
 
 async def run_agent(
-    graph: Any, question: str, groups: list[str]
+    graph: Any,
+    question: str,
+    groups: list[str],
+    tier: str = "large",
+    carried: dict[str, Any] | None = None,
 ) -> AsyncIterator[TraceEvent | AgentResult]:
-    """Yields each step as it finishes, then the final result."""
+    """Yields each step as it finishes, then the final result. `carried` seeds the state
+    (plan, passages, SQL result...) when the graph starts at the writer."""
     # Redacted before the question reaches any model or log.
-    state: State = {"question": redact(question).text, "groups": groups, "trace": []}
+    state: State = {
+        **(carried or {}),  # type: ignore[typeddict-item]
+        "question": redact(question).text,
+        "groups": groups,
+        "tier": tier,
+        "trace": [],
+    }
     final: dict[str, Any] = dict(state)
     async for update in graph.astream(state, stream_mode="updates"):
         for node_output in update.values():
@@ -314,6 +352,7 @@ async def run_agent(
         withheld=final.get("withheld") or [],
         question_flags=final.get("question_flags") or [],
         confidence=final.get("confidence"),
+        tier=tier,
     )
 
 

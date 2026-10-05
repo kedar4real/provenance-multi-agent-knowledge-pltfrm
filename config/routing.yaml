@@ -1,0 +1,43 @@
+# Controller policy (src/provenance/controller/policy.py). The thresholds below were set
+# before any measurement and are not tuned to eval results; the evals report what they give.
+
+routing:
+  enabled: true
+  # The tier when routing is off, and for questions the classifier marks complex. "large"
+  # reproduces the M5 agent (large writer, small fallback).
+  default_tier: large
+
+tiers:
+  small:
+    write_roles: [serve_small]
+  large:
+    write_roles: [serve_large, serve_small]  # the small model stands in when large is down
+
+escalate:
+  # A small-tier answer is redone by the large tier when any of these hold.
+  on_failed_verification: true   # numbers or citations still wrong after the revision
+  on_decline_with_evidence: true # the small model gave up although evidence was found
+  below_confidence: 0.5          # calibrated confidence (ignored until a calibrator exists)
+
+abstain:
+  # After escalation: below this calibrated confidence the answer is withheld and the
+  # evidence shown instead. Ignored until a calibrator exists.
+  below_confidence: 0.3
+
+cache:
+  enabled: true
+  version: 1          # bump to invalidate every cached answer (e.g. after re-ingesting)
+  similarity: 0.95    # cosine similarity of question embeddings for a semantic hit
+  # A hit also needs the same companies, years, numbers and metrics in both questions:
+  # "Apple revenue 2024" and "Apple revenue 2023" embed almost identically.
+  entity_guard: true
+  ttl_s: 86400
+
+budgets:
+  request_tokens: 30000          # an escalation that would exceed this is skipped
+  principal_daily_tokens: 500000 # per caller per UTC day; over it, requests get HTTP 429
+
+backpressure:
+  max_concurrent: 4    # agent runs at once (CPU models and free-tier quotas are the limit)
+  max_waiting: 16      # queued beyond the running ones; more get HTTP 503 immediately
+  wait_timeout_s: 30   # a queued request gives up (HTTP 503) after this long

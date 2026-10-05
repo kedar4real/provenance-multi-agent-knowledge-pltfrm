@@ -25,6 +25,7 @@ dependencies = [
     "redis>=8.1.0",
     "sqlglot>=30.21.0",
     "scikit-learn>=1.9.1",
+    "prometheus-client>=0.21",
 ]
 
 [build-system]
