@@ -47,7 +47,7 @@ def numbers_in(text: str) -> list[tuple[str, float]]:
     return found
 
 
-def _supported(value: float, evidence_values: list[float]) -> bool:
+def number_supported(value: float, evidence_values: list[float]) -> bool:
     if value == 0:
         return 0.0 in evidence_values
     for ev in evidence_values:
@@ -59,7 +59,7 @@ def _supported(value: float, evidence_values: list[float]) -> bool:
     return False
 
 
-def _derived(value: float, evidence_values: list[float]) -> bool:
+def number_derived(value: float, evidence_values: list[float]) -> bool:
     values = list(dict.fromkeys(v for v in evidence_values if v != 0))[:_MAX_PAIRED]
     target = abs(value)
     for i, a in enumerate(values):
@@ -73,7 +73,7 @@ def _derived(value: float, evidence_values: list[float]) -> bool:
     return False
 
 
-def _small_count(written: str) -> bool:
+def is_small_count(written: str) -> bool:
     """'3 segments', '2 years': small whole numbers are counts, not figures to verify."""
     return written.isdigit() and int(written) < 10
 
@@ -88,9 +88,9 @@ def verify(answer: str, evidence: list[Evidence]) -> Verification:
     unsupported = [
         written
         for written, value in numbers_in(answer)
-        if not _small_count(written)
-        and not _supported(value, cited_values)
-        and not _derived(value, cited_values)
+        if not is_small_count(written)
+        and not number_supported(value, cited_values)
+        and not number_derived(value, cited_values)
     ]
     uncited = not cited
     return Verification(
