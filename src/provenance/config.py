@@ -21,4 +21,6 @@ class Settings(BaseSettings):
     api_keys_path: Path = REPO_ROOT / "config" / "api_keys.local.json"
     routing_path: Path = REPO_ROOT / "config" / "routing.yaml"
     db_pool_max_size: int = 10
+    # OpenTelemetry traces go here when set (e.g. http://127.0.0.1:4318 for Jaeger).
+    otel_exporter_otlp_endpoint: str | None = None
     load_models: bool = True  # embedder + reranker at API startup; tests turn it off

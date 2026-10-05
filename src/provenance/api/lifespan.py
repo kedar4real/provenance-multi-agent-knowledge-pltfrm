@@ -122,6 +122,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if app.state.tracer_provider is not None:
+            app.state.tracer_provider.shutdown()  # flush the last spans
         await redis.aclose()
         await sql_pool.close()
         await pool.close()

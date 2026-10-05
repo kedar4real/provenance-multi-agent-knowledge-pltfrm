@@ -14,6 +14,8 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from opentelemetry.trace import Tracer
+
 from provenance.agents.graph import AgentDeps, build_graph, run_agent
 from provenance.agents.types import AgentResult, ControlReport, TraceEvent
 from provenance.agents.verify import DECLINE
@@ -34,6 +36,7 @@ from provenance.controller.policy import (
 )
 from provenance.llm.metering import Completer, CostFn, MeteredLLM, RunUsage
 from provenance.security.pii import redact
+from provenance.telemetry.otel import record_step, tracer
 
 log = logging.getLogger("provenance.controller")
 
@@ -60,6 +63,7 @@ class Controller:
     cache: AnswerCache | None = None
     budgets: BudgetStore | None = None
     metrics: Metrics | None = None
+    tracer: Tracer | None = None  # None: the process tracer (a no-op unless configured)
 
     async def preflight(self, principal: str) -> int | None:
         """Tokens left today; raises BudgetExhausted. Called before the stream starts so a
@@ -79,6 +83,32 @@ class Controller:
         return left
 
     async def run(
+        self, question: str, principal: str, groups: list[str], make_deps: DepsFactory
+    ) -> AsyncIterator[TraceEvent | AgentResult]:
+        """Streams each step as it finishes, then the result; traced as one span per run
+        with a child span per step."""
+        t = self.tracer or tracer()
+        span = t.start_span("controller.run", attributes={"provenance.principal": principal})
+        try:
+            async for item in self._run(question, principal, groups, make_deps):
+                if isinstance(item, TraceEvent):
+                    record_step(t, span, item)
+                elif item.control is not None:
+                    c = item.control
+                    span.set_attribute("provenance.tier", c.tier)
+                    span.set_attribute("provenance.cache_hit", bool(c.cache and c.cache.hit))
+                    span.set_attribute("provenance.escalated", c.escalated or "")
+                    span.set_attribute("provenance.abstained", c.abstained or "")
+                    span.set_attribute("provenance.tokens", c.usage.tokens)
+                    span.set_attribute("provenance.cost_usd", c.usage.cost_usd)
+                yield item
+        except BaseException as e:
+            span.record_exception(e)
+            raise
+        finally:
+            span.end()
+
+    async def _run(
         self, question: str, principal: str, groups: list[str], make_deps: DepsFactory
     ) -> AsyncIterator[TraceEvent | AgentResult]:
         started = time.perf_counter()

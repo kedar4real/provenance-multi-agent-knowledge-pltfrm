@@ -34,6 +34,12 @@ def create_app(
     app.state.llm = llm
     app.state.scorer = scorer
     app.state.policy = policy
+    app.state.tracer_provider = None
+    endpoint = app.state.settings.otel_exporter_otlp_endpoint
+    if endpoint:  # traces to Jaeger (docker compose --profile observability)
+        from provenance.telemetry.otel import setup_tracing
+
+        app.state.tracer_provider = setup_tracing(app, endpoint)
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     app.include_router(health.router)

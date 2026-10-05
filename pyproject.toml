@@ -26,6 +26,9 @@ dependencies = [
     "sqlglot>=30.21.0",
     "scikit-learn>=1.9.1",
     "prometheus-client>=0.21",
+    "opentelemetry-sdk>=1.45.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.0",
+    "opentelemetry-instrumentation-fastapi>=0.66b0",
 ]
 
 [build-system]
