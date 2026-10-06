@@ -65,3 +65,13 @@ points at (your full ingest), so numbers can differ slightly from CI's restored 
 An answer-quality (faithfulness) gate over a 25-question subset needs a Groq key as a
 repository secret and a baseline measured from the agent eval; it will be added once that
 eval has run. Until then answer quality is measured, not gated.
+
+## Verified locally
+
+Against an index restored from `scripts/index_dump.py` into a fresh, migrated database (the
+path CI takes):
+
+- On `main`: the gate passes and reproduces the recorded baseline exactly (Recall@1 0.792,
+  Recall@10 0.946, MRR 0.853, 0 leaks), in 883 s on a laptop CPU shared with other jobs.
+- On the local branch `proof/gate-regression` (reranker pool 20 to 3): it fails all five
+  quality metrics (Recall@1 0.731 vs floor 0.762, Recall@10 0.800 vs 0.916) and exits 1.

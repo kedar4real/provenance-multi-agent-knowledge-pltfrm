@@ -183,5 +183,7 @@ db/migrations/      schema, row-level security, audit log
   that weren't used.
 - **No token-logprob signal:** no free provider tested returns logprobs, so confidence comes
   from NLI and number checks only.
+- **Ingestion is a command-line job,** not a queued background worker; it scans for
+  injection as part of the run, but there is no re-ingestion on new filings.
 - **mcpgate** serves stdio to clients (upstreams can be stdio or HTTP) and logs to JSONL;
   there is no Postgres audit sink.

@@ -286,3 +286,17 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 - **The trace panel shows measured numbers only:** per step the time, the provider/model that ran, tokens in/out and API-equivalent cost, with totals and the browser-measured wall-clock time. Step times overlap (search and SQL run in parallel), which the panel says; model calls are listed once, on the first step of their node, so a revision's calls don't repeat the write step's.
 - **The demo is recorded, not staged.** `scripts/demo_gif.py` drives the real UI against the running API with temporary keys (revoked afterwards): a cited answer with live steps, the highlighted source, the user switcher, and the same question from an analyst who can't see the filing. Screenshots are stitched with ffmpeg instead of using Playwright's video recorder (which needs a separate download); idle waits are capped at one second per frame, so the GIF is shorter than the ~48 s run.
+
+## CI and the retrieval gate (M11)
+
+### A gate that needs no keys and no model calls
+- It runs hybrid search + rerank (config c) over every golden case and fails on any metric below its floor, any access-control leak, or fewer gold-passage cases than the baseline. Deterministic, so it can run on every PR; answer quality needs an LLM judge and quota, so it stays manual until a baseline from the agent eval exists (then a 25-case subset with a tolerance band).
+- **Floors are recorded, not chosen:** `python -m eval.gate --record` writes the measurement and measurement minus 0.03 (about four questions of Recall@1). Re-recording happens in its own commit when the golden set or pipeline legitimately changes, so a reviewer sees the baseline move. Never to make a failing PR pass.
+- **The index travels as a dump, not an ingest.** CI can't re-ingest from EDGAR (rate limits, a long CPU embedding run). `scripts/index_dump.py` wraps pg_dump/pg_restore inside the compose container (no host client tools; a custom-format dump of five tables, 26 MB) and the workflow downloads it from a release asset. No secrets are in it (`app_secrets` and `audit_log` are excluded; the signing key comes from the environment).
+- **HNSW is approximate:** an index rebuilt from the dump returned Recall@1 0.792 vs 0.800 on the original (one question in 130). The recorded baseline comes from a restored copy, the path CI takes, and the tolerance absorbs this.
+- The gate workflow is path-filtered (retrieval, ingestion, security, database, eval) because a full run took about 15 minutes on a loaded laptop CPU (883 s), and a private repo has 2,000 free Actions minutes a month.
+
+### CI choices
+- Integration tests use the repo's own `docker-compose.yml` (real ParadeDB and Redis 8), so CI runs the stack developers run. gitleaks scans the full history. `mcpgate` is built as a wheel and run in an environment without provenance, which proves the "installable alone" claim.
+- **PyTorch's CPU index on Linux only.** The lockfile held 43 NVIDIA packages (about 3 GB) for models that run on CPU. torch became a direct dependency so a Linux-only index source applies; Windows still resolves from PyPI and its torch version didn't change.
+- **Deferred:** the faithfulness gate (needs a baseline and a Groq key as a repository secret).
