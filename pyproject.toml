@@ -29,6 +29,8 @@ dependencies = [
     "opentelemetry-sdk>=1.45.0",
     "opentelemetry-exporter-otlp-proto-http>=1.45.0",
     "opentelemetry-instrumentation-fastapi>=0.66b0",
+    # Direct, so the Linux source below applies (sentence-transformers only pulls it in).
+    "torch>=2.5",
 ]
 
 [project.scripts]
@@ -58,6 +60,14 @@ members = ["packages/mcpgate"]
 
 [tool.uv.sources]
 mcpgate = { workspace = true }
+# The models run on CPU. On Linux (CI, containers) PyPI's torch drags in ~3 GB of CUDA
+# libraries; PyTorch's CPU index doesn't. Windows keeps using PyPI.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 line-length = 100
