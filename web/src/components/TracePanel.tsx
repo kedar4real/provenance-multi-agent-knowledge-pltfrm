@@ -27,7 +27,7 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
               <th scope="col" className="px-4 py-2 font-normal">Step</th>
               <th scope="col" className="px-2 py-2 text-right font-normal">Time</th>
               <th scope="col" className="px-2 py-2 font-normal">Model</th>
-              <th scope="col" className="px-2 py-2 text-right font-normal">Tokens in / out</th>
+              <th scope="col" className="px-2 py-2 text-right font-normal whitespace-nowrap">Tokens in / out</th>
               <th scope="col" className="px-4 py-2 text-right font-normal">Cost</th>
             </tr>
           </thead>
@@ -39,10 +39,10 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
               const shown = first ? own : [];
               return (
                 <tr key={i} className="align-top">
-                  <th scope="row" className="px-4 py-2 font-normal text-ink-2">
+                  <th scope="row" className="min-w-44 px-4 py-2 font-normal text-ink-2">
                     {STEP_LABELS[step.step] ?? step.step}
                   </th>
-                  <td className="px-2 py-2 text-right font-mono text-ink-3 tabular-nums">{formatMs(step.ms)}</td>
+                  <td className="px-2 py-2 text-right font-mono whitespace-nowrap text-ink-3 tabular-nums">{formatMs(step.ms)}</td>
                   <td className="px-2 py-2 font-mono text-[12px] text-ink-3">
                     {shown.map((c, j) => (
                       <div key={j} className="whitespace-nowrap">
@@ -70,7 +70,7 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
             <tfoot className="border-t border-rule-strong text-ink-2">
               <tr>
                 <th scope="row" className="px-4 py-2 font-medium">Total</th>
-                <td className="px-2 py-2 text-right font-mono tabular-nums">
+                <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">
                   {elapsedMs !== null ? formatMs(elapsedMs) : ""}
                 </td>
                 <td />

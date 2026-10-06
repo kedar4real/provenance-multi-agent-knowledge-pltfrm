@@ -23,8 +23,11 @@ Claude Desktop --stdio--> mcpgate --stdio--> provenance-mcp --HTTP + API key--> 
    .venv\Scripts\mcpgate.exe approve --policy config\mcpgate.yaml -- .venv\Scripts\provenance-mcp.exe
    ```
    The policy uses `first_use: require_approval`, so nothing is served before this step.
-4. Add the server to `%APPDATA%\Claude\claude_desktop_config.json` (the key is stored there,
-   on your machine only):
+4. Add the server to Claude Desktop's `claude_desktop_config.json` (the key is stored there,
+   on your machine only). Its location depends on how Desktop was installed: the Microsoft
+   Store app keeps it under
+   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\`, a direct install
+   under `%APPDATA%\Claude\`. (Desktop's Settings > Developer > Edit Config opens the right file.)
    ```json
    {
      "mcpServers": {
