@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Not a secret: signs access groups in throwaway CI databases only.
+  RLS_SIGNING_KEY: ci-only-signing-key
+  UV_FROZEN: "1" # fail instead of silently re-resolving when uv.lock is stale
+
+jobs:
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan the whole history, not just the tip
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  python:
+    name: lint, types, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src eval tests packages/mcpgate/src packages/mcpgate/fixtures packages/mcpgate/tests scripts
+      - name: Unit tests (includes mcpgate against its malicious fixture server)
+        run: uv run pytest -m "not integration" -q
+
+  integration:
+    name: integration tests (ParadeDB, Redis)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: Start Postgres (pg_search + pgvector) and Redis 8 from docker-compose.yml
+        run: docker compose up -d --wait postgres redis
+      - run: uv run pytest -m integration -q
+      - if: failure()
+        run: docker compose logs postgres redis | tail -100
+
+  web:
+    name: web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build # tsc --noEmit, then vite build
+
+  mcpgate-standalone:
+    name: mcpgate installs on its own
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the wheel and run its CLI in an environment without provenance
+        run: |
+          uv build --package mcpgate --out-dir dist
+          uv run --isolated --no-project --with dist/mcpgate-*.whl mcpgate --help
