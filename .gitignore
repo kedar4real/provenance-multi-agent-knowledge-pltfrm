@@ -38,3 +38,6 @@ config/api_keys.local.tmp
 
 # mcpgate pins and audit log (local state)
 .mcpgate/
+
+# the CI gate writes this on every run
+eval/reports/gate-latest.json
