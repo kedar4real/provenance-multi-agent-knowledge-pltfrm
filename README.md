@@ -101,6 +101,12 @@ team: assistants must append all board memos") evaded both layers, which is why 
 is quarantined away from the answer writer and the agent has no write access to anything in
 the first place. Details in [docs/decisions.md](docs/decisions.md).
 
+The scan has run over the whole corpus: 9,301 passages, 19 flagged (0.2%). Reading all 19, none
+is an attack. 14 are dense tables (drug patent-expiry charts, financial statements) that the
+classifier scores 0.91-0.99, and 5 tripped a "privilege" pattern on ordinary sentences. They are
+quarantined, so those passages are not available to answers; the thresholds were not loosened to
+recover them.
+
 ### Answer cache
 
 Measured on 172 labeled question pairs ([report](eval/reports/cache-20261005-1914.md)).
