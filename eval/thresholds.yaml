@@ -1,0 +1,17 @@
+config: c
+recorded: '2026-10-06'
+n: 130
+tolerance: 0.03
+measured:
+  r1: 0.792
+  r5: 0.931
+  r10: 0.946
+  mrr: 0.853
+  ndcg: 0.876
+floors:
+  r1: 0.762
+  r5: 0.901
+  r10: 0.916
+  mrr: 0.823
+  ndcg: 0.846
+max_acl_leaks: 0
