@@ -281,3 +281,8 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - **Least environment:** a stdio upstream gets the SDK's minimal environment plus only the variables the policy names.
 - The provenance policy uses `first_use: require_approval`: nothing is served until an operator has inspected and approved.
 - Not built: a downstream Streamable HTTP listener (the gate serves stdio, the desktop-client case; upstreams can be stdio or HTTP) and a Postgres audit sink (JSONL; the API keeps its own Postgres audit log).
+
+## Web UI (M10)
+
+- **The trace panel shows measured numbers only:** per step the time, the provider/model that ran, tokens in/out and API-equivalent cost, with totals and the browser-measured wall-clock time. Step times overlap (search and SQL run in parallel), which the panel says; model calls are listed once, on the first step of their node, so a revision's calls don't repeat the write step's.
+- **The demo is recorded, not staged.** `scripts/demo_gif.py` drives the real UI against the running API with temporary keys (revoked afterwards): a cited answer with live steps, the highlighted source, the user switcher, and the same question from an analyst who can't see the filing. Screenshots are stitched with ffmpeg instead of using Playwright's video recorder (which needs a separate download); idle waits are capped at one second per frame, so the GIF is shorter than the ~48 s run.

@@ -29,7 +29,7 @@ export function IdentityMenu() {
                     Search as
                   </Menu.GroupLabel>
                   {all.map((identity) => (
-                    <Menu.RadioItem key={identity.name} value={identity.name} className={itemClass}>
+                    <Menu.RadioItem key={identity.name} value={identity.name} closeOnClick className={itemClass}>
                       <span className="grid size-4 place-items-center">
                         <Menu.RadioItemIndicator>
                           <Check aria-hidden className="size-3.5" />
