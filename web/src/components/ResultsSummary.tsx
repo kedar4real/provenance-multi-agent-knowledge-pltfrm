@@ -1,6 +1,7 @@
 import { CornerDownRight } from "lucide-react";
 
 import { ITEM_TITLES, type SearchResult } from "../lib/api";
+import { formatMs } from "../lib/steps";
 import { Chip } from "./ui";
 
 // Stage order matches the pipeline; each gets a quiet shade so the bar reads as one object.
@@ -84,8 +85,4 @@ export function ResultsSummary({ result }: { result: SearchResult }) {
       )}
     </section>
   );
-}
-
-function formatMs(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
 }

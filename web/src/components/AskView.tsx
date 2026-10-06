@@ -4,6 +4,8 @@ import { Fragment, useId, useRef, useState, type FormEvent, type ReactNode } fro
 import { ApiError, streamQuery, type AgentResult, type Evidence, type TraceEvent } from "../lib/api";
 import { cn } from "../lib/cn";
 import type { Identity } from "../lib/identities";
+import { STEP_LABELS, formatMs } from "../lib/steps";
+import { TracePanel } from "./TracePanel";
 import { Button } from "./ui";
 
 const EXAMPLES = [
@@ -15,7 +17,7 @@ const EXAMPLES = [
 type RunState =
   | { status: "idle" }
   | { status: "running"; steps: TraceEvent[] }
-  | { status: "done"; steps: TraceEvent[]; result: AgentResult }
+  | { status: "done"; steps: TraceEvent[]; result: AgentResult; elapsedMs: number }
   | { status: "error"; steps: TraceEvent[]; message: string };
 
 interface Props {
@@ -36,6 +38,7 @@ export function AskView({ identity, onOpenSource }: Props) {
     const controller = new AbortController();
     inFlight.current = controller;
     const steps: TraceEvent[] = [];
+    const started = performance.now();
     setRun({ status: "running", steps });
     try {
       await streamQuery(
@@ -46,7 +49,7 @@ export function AskView({ identity, onOpenSource }: Props) {
             steps.push(event.data);
             setRun({ status: "running", steps: [...steps] });
           } else if (event.kind === "result") {
-            setRun({ status: "done", steps: [...steps], result: event.data });
+            setRun({ status: "done", steps: [...steps], result: event.data, elapsedMs: performance.now() - started });
           } else {
             setRun({ status: "error", steps: [...steps], message: event.data.message });
           }
@@ -124,26 +127,14 @@ export function AskView({ identity, onOpenSource }: Props) {
         </p>
       )}
 
-      {run.status === "done" && <AnswerView result={run.result} identity={identity} onOpenSource={onOpenSource} />}
+      {run.status === "done" && (
+        <AnswerView result={run.result} elapsedMs={run.elapsedMs} identity={identity} onOpenSource={onOpenSource} />
+      )}
     </div>
   );
 }
 
 // ---- Steps ------------------------------------------------------------------------------
-
-const STEP_LABELS: Record<string, string> = {
-  route: "Choose a model",
-  cache: "Check earlier answers",
-  plan: "Plan",
-  search: "Read filings",
-  sql: "Query financial data",
-  write: "Write answer",
-  revise: "Revise answer",
-  verify: "Verify numbers and citations",
-  score: "Score each claim",
-  escalate: "Escalate to the large model",
-  abstain: "Withhold the answer",
-};
 
 const TIER_REASONS: Record<string, string> = {
   simple: "a single lookup",
@@ -322,7 +313,17 @@ function verificationProblem(d: Record<string, unknown>): string {
 
 const CITATION = /\[((?:[PF]\d+)(?:\s*,\s*[PF]\d+)*)\]/g;
 
-function AnswerView({ result, identity, onOpenSource }: { result: AgentResult; identity: Identity; onOpenSource: (id: number) => void }) {
+function AnswerView({
+  result,
+  elapsedMs,
+  identity,
+  onOpenSource,
+}: {
+  result: AgentResult;
+  elapsedMs: number;
+  identity: Identity;
+  onOpenSource: (id: number) => void;
+}) {
   const [focusedFact, setFocusedFact] = useState<string | null>(null);
   const byId = new Map(result.evidence.map((e) => [e.id, e]));
 
@@ -337,6 +338,7 @@ function AnswerView({ result, identity, onOpenSource }: { result: AgentResult; i
           </p>
         </div>
         <RunSummary result={result} />
+        <TracePanel result={result} elapsedMs={elapsedMs} />
         <EvidenceList
           evidence={result.evidence}
           cited={new Set()}
@@ -383,6 +385,7 @@ function AnswerView({ result, identity, onOpenSource }: { result: AgentResult; i
         {renderAnswer(result.answer, byId, openCitation)}
       </div>
       <ClaimConfidence claims={result.claims} />
+      <TracePanel result={result} elapsedMs={elapsedMs} />
       <EvidenceList
         evidence={result.evidence}
         cited={citedIds(result.answer)}
@@ -664,8 +667,4 @@ function formatCell(value: unknown): string {
     return `${value < 0 ? "-" : ""}$${(abs / div).toFixed(2)}${unit}`;
   }
   return String(value ?? "–");
-}
-
-function formatMs(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
 }

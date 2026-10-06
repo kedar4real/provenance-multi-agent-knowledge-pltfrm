@@ -126,6 +126,19 @@ export interface TraceEvent {
   ms: number;
 }
 
+/** One model call made while answering, attributed to the step that made it. */
+export interface LLMCall {
+  node: string;
+  role: string;
+  provider: string;
+  model: string;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  latency_ms: number;
+  cost_usd: number;
+}
+
 /** What the controller decided around the agent run, and what it cost (M8). */
 export interface ControlReport {
   tier: "small" | "large";
@@ -133,7 +146,13 @@ export interface ControlReport {
   escalated: string | null;
   abstained: string | null;
   cache: { hit: boolean; kind: string; similarity: number | null; matched_question: string | null; ms: number } | null;
-  usage: { input_tokens: number; output_tokens: number; cached_input_tokens: number; cost_usd: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cached_input_tokens: number;
+    cost_usd: number;
+    calls: LLMCall[];
+  };
   budget_left: number | null;
 }
 
