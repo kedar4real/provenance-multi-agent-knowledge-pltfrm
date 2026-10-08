@@ -16,17 +16,29 @@ function digits(n: string): string {
   return n.replace(/[$,%]/g, "");
 }
 
-/** True when an evidence number is the claim's number, as written or scaled: a data row's
- *  31370000000.0 is the answer's "$31.37 billion"; 0.062 can be "6.2%". */
-function sameNumber(evidence: number, claim: number): boolean {
-  const close = (a: number, b: number) => Math.abs(a - b) <= Math.max(Math.abs(b) * 0.005, 0.005);
-  return [1, 1e3, 1e6, 1e9, 1e12, 0.01].some((scale) => close(evidence / scale, claim));
+/** A number from the claim, and how precisely it was written ("31.37" is +/- 0.005). */
+interface ClaimNumber {
+  value: number;
+  tolerance: number;
+}
+
+function claimNumber(written: string): ClaimNumber {
+  const decimals = written.split(".")[1]?.length ?? 0;
+  return { value: Number(written), tolerance: 0.5 * 10 ** -decimals + 1e-9 };
+}
+
+/** True when an evidence number is the claim's number at the claim's own precision, as written
+ *  or scaled: a data row's 31370000000.0 is "$31.37 billion", but 130,387 is not "130,497". */
+function sameNumber(evidence: number, claim: ClaimNumber): boolean {
+  return [1, 1e3, 1e6, 1e9, 1e12, 0.01].some((scale) => Math.abs(evidence / scale - claim.value) <= claim.tolerance);
 }
 
 /** Highlights, in an evidence text, the numbers that also appear in the claim. */
 function highlightNumbers(text: string, wanted: Set<string>): ReactNode[] {
   if (wanted.size === 0) return [text];
-  const claims = [...wanted].map(Number).filter((n) => Number.isFinite(n) && !(n >= 1900 && n <= 2100 && Number.isInteger(n)));
+  const claims = [...wanted]
+    .map(claimNumber)
+    .filter((c) => Number.isFinite(c.value) && !(c.value >= 1900 && c.value <= 2100 && Number.isInteger(c.value)));
   const parts: ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(NUMBER)) {

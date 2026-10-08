@@ -5,11 +5,25 @@ agent reads the filings and queries the reported financials, writes an answer th
 evidence, and checks every number against that evidence before showing it. Each user only
 ever sees what their access groups allow, enforced inside the database.
 
-![Demo: a cited answer with live steps, the highlighted source, then the same question from an analyst without access](docs/media/demo.gif)
+![Demo: an answer streams in with its steps, a chart and a stamp; a sentence opens its evidence; the cited filing opens highlighted; Compare shows an analyst without access getting no answer; the dashboard](docs/media/demo.gif)
 
-*Recorded from the real app by [scripts/demo_gif.py](scripts/demo_gif.py): an analyst who
-can see Nvidia gets a cited answer and opens the source passage; the healthcare analyst asks
-the same question and is told there is nothing they can see that answers it.*
+*Recorded from the real app by [scripts/demo_gif.py](scripts/demo_gif.py) (waits for the
+free-tier models are fast-forwarded). Ivan, who can read every filing, asks how Nvidia's
+revenue changed: the steps and the draft stream in, the verified answer gets its stamp and a
+chart of the reported figures it cites, a sentence opens its evidence, and a citation opens
+the 10-K with the passage highlighted. Compare then asks the same question as Hana, a
+healthcare analyst, and the database gives her nothing to answer from.*
+
+| | |
+|---|---|
+| ![A verified answer with citations and a chart of the reported revenue it cites](docs/media/answer.png) | ![The evidence behind one sentence: the filing text and data rows, with the sentence's numbers highlighted](docs/media/claim.png) |
+| **A verified answer.** Every number was found in the evidence it cites; the chart is drawn from the reported figures. | **Click any sentence** to see what it cites; its numbers are matched in the filing and the data, at the precision they were written. |
+| ![The same question asked as two people side by side](docs/media/compare.png) | ![The dashboard: questions, cache hit rate, tokens, answer time, routing and outcomes](docs/media/dashboard.png) |
+| **Compare** asks one question as two people. Same agent, same code: the answers differ because row-level security shows them different rows. | **Dashboard:** live counts, cache hit rate, routing, tokens, API-equivalent cost and answer times from the controller's metrics. |
+| ![The auditor-only audit log: tool calls per day and by person, scan totals](docs/media/audit.png) | ![A verified answer in dark mode](docs/media/answer-dark.png) |
+| **Audit log** (auditors only, enforced in the database): every tool call, and the passages quarantined as possible prompt injections. | **Dark mode**, with its own validated chart colours. |
+
+Screenshots: [scripts/readme_screenshots.py](scripts/readme_screenshots.py).
 
 ## What's in it
 
