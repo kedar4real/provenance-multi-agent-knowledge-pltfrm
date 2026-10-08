@@ -16,8 +16,9 @@ from provenance.agents.graph import (
     build_graph,
     run_agent,
 )
-from provenance.agents.types import AgentResult, TraceEvent
+from provenance.agents.types import AgentResult, AnswerDelta, TraceEvent
 from provenance.llm.errors import AllProvidersFailed
+from provenance.llm.streaming import token_sink
 from provenance.llm.types import ChatRequest, ChatResponse, Usage
 from provenance.retrieval.types import Hit, SearchFilters, SearchResult
 from provenance.sql.worker import SqlResult
@@ -95,7 +96,7 @@ async def run(llm: ScriptedLLM, searcher: FakeSearcher, sql: FakeSql, question: 
     async for item in run_agent(build_graph(deps), question, GROUPS):
         if isinstance(item, AgentResult):
             result = item
-        else:
+        elif isinstance(item, TraceEvent):
             events.append(item)
     assert result is not None
     return result, events
@@ -232,10 +233,39 @@ async def test_answers_get_claim_confidence_when_a_scorer_is_configured() -> Non
     async for item in run_agent(build_graph(deps), "NII?", GROUPS):
         if isinstance(item, AgentResult):
             result = item
-        else:
+        elif isinstance(item, TraceEvent):
             events.append(item)
 
     assert result is not None
     assert [round(c.confidence or 0, 2) for c in result.claims] == [0.8]
     assert result.confidence == 0.8
     assert events[-1].step == "score"
+
+
+class StreamingLLM(ScriptedLLM):
+    """Writes its answers word by word into the token sink, as a streaming provider does."""
+
+    async def complete(self, role: str, request: ChatRequest) -> ChatResponse:
+        response = await super().complete(role, request)
+        sink = token_sink.get()
+        if sink is not None and not request.json_mode:
+            sink.reset()
+            for word in response.content.split(" "):
+                sink.delta(word + " ")
+        return response
+
+
+async def test_the_answer_streams_as_it_is_written_and_a_revision_starts_over() -> None:
+    llm = StreamingLLM(TEXT_PLAN, "It was $99 billion [P1].", "It was $95.4 billion [P1].")
+    deps = AgentDeps(llm, FakeSearcher([PASSAGE]), FakeSql([]), no_connection, no_connection)
+
+    items = [item async for item in run_agent(build_graph(deps), "NII?", GROUPS)]
+
+    deltas = [i for i in items if isinstance(i, AnswerDelta)]
+    assert [d.reset for d in deltas].count(True) == 2  # the draft, then the revision
+    after_last_reset = deltas[max(i for i, d in enumerate(deltas) if d.reset) + 1 :]
+    assert "".join(d.text for d in after_last_reset).strip() == "It was $95.4 billion [P1]."
+    assert all(d.step == "revise" for d in after_last_reset)
+    assert isinstance(items[-1], AgentResult)
+    # The plan is JSON and never streams; only the writer's text does.
+    assert deltas[0].step == "write"

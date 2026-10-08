@@ -59,6 +59,16 @@ class TraceEvent(BaseModel):
     ms: float = 0.0
 
 
+class AnswerDelta(BaseModel):
+    """A fragment of the answer as the model writes it. `reset` starts the text over: a new
+    attempt, a revision, or an escalation replaces what was streamed before. Never part of
+    the final result; the verified answer arrives with it."""
+
+    step: str  # "write" or "revise"
+    text: str = ""
+    reset: bool = False
+
+
 class ControlReport(BaseModel):
     """What the controller decided around the agent run, and what the run cost."""
 
