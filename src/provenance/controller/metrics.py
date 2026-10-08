@@ -4,15 +4,35 @@ Each app gets its own registry (tests build many apps; the global one would refu
 duplicate names). Breaker and queue gauges are read at scrape time, so they're never stale.
 """
 
+import time
+from collections import defaultdict
 from collections.abc import Callable
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from pydantic import BaseModel
 
 from provenance.llm.metering import RunUsage
 
 
+class MetricsSnapshot(BaseModel):
+    """The counters as plain numbers, for the dashboard (GET /v1/stats)."""
+
+    started_at: float  # epoch seconds: counts are since this process started
+    queries: dict[str, dict[str, float]]  # outcome -> tier -> count
+    cache_lookups: dict[str, float]  # kind -> count
+    escalations: dict[str, float]  # reason -> count
+    tokens: dict[str, dict[str, float]]  # role -> kind (input, cached_input, output) -> count
+    cost_usd: dict[str, float]  # role -> API-equivalent dollars
+    latency_buckets: list[tuple[float, float]]  # (upper bound in s, cumulative count)
+    latency_sum_s: float
+    shed: dict[str, float]  # reason -> count
+    running: int
+    waiting: int
+
+
 class Metrics:
     def __init__(self) -> None:
+        self.started_at = time.time()
         self.registry = CollectorRegistry()
         r = self.registry
         self.queries = Counter(
@@ -70,3 +90,42 @@ class Metrics:
             for provider, model, is_open in breakers():
                 self.breaker_open.labels(provider, model).set(1 if is_open else 0)
         return generate_latest(self.registry)
+
+    def snapshot(self, queue: tuple[int, int] = (0, 0)) -> MetricsSnapshot:
+        nested: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+        flat: dict[str, dict[str, float]] = defaultdict(dict)
+        buckets: dict[float, float] = defaultdict(float)
+        latency_sum = 0.0
+        for family in self.registry.collect():
+            for sample in family.samples:
+                name, labels, value = sample.name, sample.labels, sample.value
+                if name == "provenance_queries_total":
+                    nested["queries"][labels["outcome"]][labels["tier"]] = value
+                elif name == "provenance_llm_tokens_total":
+                    nested["tokens"][labels["role"]][labels["kind"]] = value
+                elif name == "provenance_cache_lookups_total":
+                    flat["cache"][labels["kind"]] = value
+                elif name == "provenance_escalations_total":
+                    flat["escalations"][labels["reason"]] = value
+                elif name == "provenance_llm_api_equivalent_cost_usd_total":
+                    flat["cost"][labels["role"]] = value
+                elif name == "provenance_requests_shed_total":
+                    flat["shed"][labels["reason"]] = value
+                elif name == "provenance_query_seconds_bucket":
+                    # Summed over outcomes: one latency distribution for the dashboard.
+                    buckets[float(labels["le"])] += value
+                elif name == "provenance_query_seconds_sum":
+                    latency_sum += value
+        return MetricsSnapshot(
+            started_at=self.started_at,
+            queries={k: dict(v) for k, v in nested["queries"].items()},
+            cache_lookups=dict(flat["cache"]),
+            escalations=dict(flat["escalations"]),
+            tokens={k: dict(v) for k, v in nested["tokens"].items()},
+            cost_usd=dict(flat["cost"]),
+            latency_buckets=sorted(buckets.items()),
+            latency_sum_s=latency_sum,
+            shed=dict(flat["shed"]),
+            running=queue[0],
+            waiting=queue[1],
+        )
