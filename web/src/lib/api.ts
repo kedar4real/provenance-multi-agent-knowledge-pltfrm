@@ -108,7 +108,60 @@ export const api = {
     request<Source>(`/v1/sources/${chunkId}?window=1500`, apiKey, { signal }),
   ready: (signal?: AbortSignal) =>
     request<{ status: string; checks: Record<string, string> }>("/health/ready", null, { signal }),
+  stats: (apiKey: string, signal?: AbortSignal) => request<Stats>("/v1/stats", apiKey, { signal }),
+  audit: (apiKey: string, signal?: AbortSignal) => request<AuditReport>("/v1/audit?limit=300", apiKey, { signal }),
 };
+
+// ---- Dashboard (/v1/stats) and audit (/v1/audit) ----------------------------------------
+
+export interface MetricsSnapshot {
+  started_at: number;
+  queries: Record<string, Record<string, number>>;
+  cache_lookups: Record<string, number>;
+  escalations: Record<string, number>;
+  tokens: Record<string, Record<string, number>>;
+  cost_usd: Record<string, number>;
+  /** [upper bound in seconds, cumulative count] */
+  latency_buckets: [number, number][];
+  latency_sum_s: number;
+  shed: Record<string, number>;
+  running: number;
+  waiting: number;
+}
+
+export interface Stats {
+  metrics: MetricsSnapshot | null;
+  budget: { spent: number; limit: number } | null;
+  breakers_open: string[];
+}
+
+export interface AuditEntry {
+  at: string;
+  request_id: string;
+  principal: string;
+  groups: string[];
+  tool: string;
+  input_preview: string;
+  outcome: "ok" | "denied" | "error" | string;
+  detail: Record<string, unknown>;
+}
+
+export interface AuditReport {
+  entries: AuditEntry[];
+  daily: { day: string; tool: string; outcome: string; calls: number }[];
+  scanned: number;
+  flagged: number;
+  quarantined: {
+    chunk_id: number;
+    ticker: string;
+    company: string;
+    fiscal_year: number | null;
+    item: string;
+    reasons: string[];
+    score: number | null;
+    preview: string;
+  }[];
+}
 
 export const ITEM_TITLES: Record<string, string> = {
   "1": "Business",
@@ -199,8 +252,16 @@ export interface AgentResult {
   control: ControlReport | null;
 }
 
+/** A fragment of the answer as the model writes it; `reset` starts the text over. */
+export interface AnswerDelta {
+  step: "write" | "revise" | string;
+  text: string;
+  reset: boolean;
+}
+
 export type AgentEvent =
   | { kind: "step"; data: TraceEvent }
+  | { kind: "delta"; data: AnswerDelta }
   | { kind: "result"; data: AgentResult }
   | { kind: "error"; data: { code: string; message: string } };
 

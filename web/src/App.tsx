@@ -1,10 +1,27 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { Tabs } from "@base-ui/react/tabs";
-import { BadgeCheck, Eye, LoaderCircle, MessageSquareText, ScrollText, SearchX, ShieldCheck, TextSearch, TriangleAlert } from "lucide-react";
-import { useRef, useState } from "react";
+import {
+  Activity,
+  BadgeCheck,
+  Columns2,
+  Command,
+  Eye,
+  History,
+  LoaderCircle,
+  MessageSquareText,
+  ScrollText,
+  SearchX,
+  ShieldCheck,
+  Sparkles,
+  TextSearch,
+  TriangleAlert,
+  UserRound,
+} from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { AccessScope } from "./components/AccessScope";
-import { AskView } from "./components/AskView";
+import { AskView, QUESTION_INPUT_ID } from "./components/AskView";
+import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { AddIdentityButton, IdentityMenu } from "./components/IdentityMenu";
 import { HitCard } from "./components/HitCard";
 import { ResultsSummary } from "./components/ResultsSummary";
@@ -12,8 +29,17 @@ import { ExampleList } from "./components/ExampleList";
 import { EXAMPLES, SearchForm } from "./components/SearchForm";
 import { SourcePanel } from "./components/SourcePanel";
 import { api, ApiError, type SearchParams, type SearchResult } from "./lib/api";
-import { useIdentities, type Identity } from "./lib/identities";
+import { identities, useIdentities, type Identity } from "./lib/identities";
 import { useMediaQuery } from "./lib/useMediaQuery";
+
+// The heavier views load on first use, keeping the first page small.
+const CompareView = lazy(() => import("./components/CompareView").then((m) => ({ default: m.CompareView })));
+const StatsView = lazy(() => import("./components/StatsView").then((m) => ({ default: m.StatsView })));
+const AuditView = lazy(() => import("./components/AuditView").then((m) => ({ default: m.AuditView })));
+
+function Loading() {
+  return <div className="skeleton h-48 rounded-2xl" aria-busy="true" />;
+}
 
 type SearchState =
   | { status: "idle" }
@@ -54,7 +80,18 @@ export default function App() {
   );
 }
 
+type Tab = "ask" | "compare" | "search" | "dashboard" | "audit";
+
+const TAB_CLASS =
+  "relative z-10 flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm text-ink-3 transition-colors hover:text-ink data-active:font-medium data-active:text-ink";
+
+function isTyping(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return Boolean(el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)));
+}
+
 function Workspace({ identity }: { identity: Identity }) {
+  const { all } = useIdentities();
   const [params, setParams] = useState<SearchParams>({
     query: "",
     k: 8,
@@ -63,9 +100,54 @@ function Workspace({ identity }: { identity: Identity }) {
     rewrite: true,
   });
   const [search, setSearch] = useState<SearchState>({ status: "idle" });
-  const [selected, setSelected] = useState<number | null>(null);
+  // The source panel reads with the key of whoever's answer it came from (Compare shows two).
+  const [selected, setSelected] = useState<{ chunkId: number; apiKey: string } | null>(null);
+  const [tab, setTab] = useState<Tab>("ask");
+  const [pending, setPending] = useState<{ question: string; ask: boolean; nonce: number } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [auditor, setAuditor] = useState(false);
   const inFlight = useRef<AbortController | null>(null);
   const wide = useMediaQuery("(min-width: 1024px)");
+
+  // Group membership comes from the API, not the locally saved identity, so it's current.
+  useEffect(() => {
+    const controller = new AbortController();
+    api.me(identity.key, controller.signal).then((me) => setAuditor(me.groups.includes("auditor")), () => undefined);
+    return () => controller.abort();
+  }, [identity.key]);
+
+  const openSource = useCallback((chunkId: number, apiKey?: string) => setSelected({ chunkId, apiKey: apiKey ?? identity.key }), [identity.key]);
+  const askAbout = useCallback((question: string, ask = false) => {
+    setTab("ask");
+    setPending({ question, ask, nonce: Date.now() });
+  }, []);
+  const takePending = useCallback(() => setPending(null), []);
+
+  useEffect(() => {
+    const tabs: Tab[] = ["ask", "compare", "search", "dashboard", ...(auditor ? (["audit"] as Tab[]) : [])];
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+        return;
+      }
+      if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        setTab("ask");
+        window.setTimeout(() => document.getElementById(QUESTION_INPUT_ID)?.focus(), 0);
+      } else if (/^[1-5]$/.test(e.key)) {
+        const next = tabs[Number(e.key) - 1];
+        if (next) setTab(next);
+      } else if (e.key.toLowerCase() === "h") {
+        setTab("ask");
+        setHistoryOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [auditor]);
 
   async function run(next: SearchParams = params) {
     inFlight.current?.abort();
@@ -86,39 +168,90 @@ function Workspace({ identity }: { identity: Identity }) {
     }
   }
 
+  const actions: PaletteAction[] = [
+    { id: "go-ask", group: "Go to", label: "Ask", icon: MessageSquareText, hint: "1", run: () => setTab("ask") },
+    { id: "go-compare", group: "Go to", label: "Compare two people", icon: Columns2, hint: "2", run: () => setTab("compare") },
+    { id: "go-search", group: "Go to", label: "Search passages", icon: TextSearch, hint: "3", run: () => setTab("search") },
+    { id: "go-dashboard", group: "Go to", label: "Dashboard", icon: Activity, hint: "4", run: () => setTab("dashboard") },
+    ...(auditor
+      ? [{ id: "go-audit", group: "Go to", label: "Audit log", icon: ScrollText, hint: "5", run: () => setTab("audit") }]
+      : []),
+    { id: "focus", group: "Actions", label: "Focus the question box", icon: Sparkles, hint: "/", run: () => askAbout("") },
+    { id: "history", group: "Actions", label: "Open history", icon: History, hint: "H", run: () => { setTab("ask"); setHistoryOpen(true); } },
+    ...all
+      .filter((i) => i.name !== identity.name)
+      .map((i) => ({ id: `as-${i.name}`, group: "Switch identity", label: i.displayName, icon: UserRound, run: () => identities.activate(i.name) })),
+  ];
+
+  const wideTab = tab === "compare" || tab === "dashboard" || tab === "audit";
   return (
     <>
       <div
         className={
-          selected !== null && wide
+          selected !== null && wide && !wideTab
             ? "mx-auto grid max-w-[90rem] grid-cols-[minmax(0,1fr)_minmax(0,34rem)]"
             : "mx-auto max-w-[90rem]"
         }
       >
-        <main className="ledger-margin mx-auto min-h-[calc(100dvh-3.5rem)] w-full max-w-3xl px-4 py-6 sm:px-8">
-          <Tabs.Root defaultValue="ask">
+        <main
+          className={`ledger-margin mx-auto min-h-[calc(100dvh-3.5rem)] w-full px-4 py-6 sm:px-8 ${wideTab ? "max-w-6xl" : "max-w-3xl"}`}
+        >
+          <Tabs.Root value={tab} onValueChange={(v) => setTab(v as Tab)}>
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-              <Tabs.List aria-label="Mode" className="relative flex rounded-full border border-rule bg-inset p-1">
-                <Tabs.Tab
-                  value="ask"
-                  className="relative z-10 flex h-9 items-center gap-2 rounded-full px-4 text-sm text-ink-3 transition-colors hover:text-ink data-active:font-medium data-active:text-ink"
-                >
+              <Tabs.List
+                aria-label="Mode"
+                className="relative flex max-w-full overflow-x-auto rounded-full border border-rule bg-inset p-1 [scrollbar-width:none]"
+              >
+                <Tabs.Tab value="ask" className={TAB_CLASS}>
                   <MessageSquareText aria-hidden className="size-4" />
                   Ask
                 </Tabs.Tab>
-                <Tabs.Tab
-                  value="search"
-                  className="relative z-10 flex h-9 items-center gap-2 rounded-full px-4 text-sm text-ink-3 transition-colors hover:text-ink data-active:font-medium data-active:text-ink"
-                >
-                  <TextSearch aria-hidden className="size-4" />
-                  Search passages
+                <Tabs.Tab value="compare" className={TAB_CLASS}>
+                  <Columns2 aria-hidden className="size-4" />
+                  Compare
                 </Tabs.Tab>
+                <Tabs.Tab value="search" className={TAB_CLASS}>
+                  <TextSearch aria-hidden className="size-4" />
+                  Search
+                </Tabs.Tab>
+                <Tabs.Tab value="dashboard" className={TAB_CLASS}>
+                  <Activity aria-hidden className="size-4" />
+                  Dashboard
+                </Tabs.Tab>
+                {auditor && (
+                  <Tabs.Tab value="audit" className={TAB_CLASS}>
+                    <ScrollText aria-hidden className="size-4" />
+                    Audit
+                  </Tabs.Tab>
+                )}
                 <Tabs.Indicator className="absolute top-[var(--active-tab-top)] left-[var(--active-tab-left)] h-[var(--active-tab-height)] w-[var(--active-tab-width)] rounded-full bg-sheet shadow-card ring-1 ring-rule transition-[left,width] duration-300 ease-[cubic-bezier(0.3,1.3,0.5,1)]" />
               </Tabs.List>
-              <AccessScope identity={identity} />
+              <div className="flex items-center gap-3">
+                <AccessScope identity={identity} />
+                <button
+                  type="button"
+                  onClick={() => setPaletteOpen(true)}
+                  className="hidden shrink-0 items-center gap-2 rounded-full border border-rule bg-sheet px-3 py-1.5 text-[12px] whitespace-nowrap text-ink-3 shadow-card hover:text-ink sm:inline-flex"
+                >
+                  <Command aria-hidden className="size-3.5" />
+                  Ctrl K
+                </button>
+              </div>
             </div>
             <Tabs.Panel value="ask" keepMounted className="data-hidden:hidden">
-              <AskView identity={identity} onOpenSource={setSelected} />
+              <AskView
+                identity={identity}
+                onOpenSource={openSource}
+                pending={pending}
+                onPendingTaken={takePending}
+                historyOpen={historyOpen}
+                onHistoryOpenChange={setHistoryOpen}
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="compare" keepMounted className="data-hidden:hidden">
+              <Suspense fallback={<Loading />}>
+                <CompareView identity={identity} onOpenSource={openSource} />
+              </Suspense>
             </Tabs.Panel>
             <Tabs.Panel value="search" keepMounted className="space-y-6 data-hidden:hidden">
               <div className="space-y-3">
@@ -132,8 +265,8 @@ function Workspace({ identity }: { identity: Identity }) {
               </div>
               <Results
                 state={search}
-                selected={selected}
-                onSelect={(id) => setSelected((cur) => (cur === id ? null : id))}
+                selected={selected?.chunkId ?? null}
+                onSelect={(id) => setSelected((cur) => (cur?.chunkId === id ? null : { chunkId: id, apiKey: identity.key }))}
                 onExample={(q) => {
                   const next = { ...params, query: q };
                   setParams(next);
@@ -142,36 +275,65 @@ function Workspace({ identity }: { identity: Identity }) {
                 identityName={identity.displayName}
               />
             </Tabs.Panel>
+            <Tabs.Panel value="dashboard" className="data-hidden:hidden">
+              <Suspense fallback={<Loading />}>
+                <StatsView identity={identity} />
+              </Suspense>
+            </Tabs.Panel>
+            {auditor && (
+              <Tabs.Panel value="audit" className="data-hidden:hidden">
+                <Suspense fallback={<Loading />}>
+                  <AuditView identity={identity} onOpenSource={openSource} />
+                </Suspense>
+              </Tabs.Panel>
+            )}
           </Tabs.Root>
         </main>
 
-        {selected !== null && wide && (
+        {selected !== null && wide && !wideTab && (
           <aside
             aria-label="Source passage"
             className="sticky top-14 h-[calc(100dvh-3.5rem)] animate-slide-in border-l border-rule bg-sheet shadow-lift"
           >
-            <SourcePanel apiKey={identity.key} chunkId={selected} onClose={() => setSelected(null)} />
+            <SourcePanel
+              apiKey={selected.apiKey}
+              chunkId={selected.chunkId}
+              onClose={() => setSelected(null)}
+              onAskAbout={(q) => askAbout(q)}
+            />
           </aside>
         )}
       </div>
 
-      {!wide && (
+      {(!wide || wideTab) && (
         <Dialog.Root open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
           <Dialog.Portal>
             <Dialog.Backdrop className="fixed inset-0 z-40 bg-ink/25 backdrop-blur-[2px] transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
-            <Dialog.Popup className="fixed inset-x-0 bottom-0 z-50 h-[85dvh] rounded-t-2xl border-t border-rule bg-sheet shadow-lift pb-[env(safe-area-inset-bottom)] transition-transform duration-200 ease-out data-ending-style:translate-y-full data-starting-style:translate-y-full">
+            <Dialog.Popup
+              className={
+                wide
+                  ? "fixed inset-y-0 right-0 z-50 w-[34rem] border-l border-rule bg-sheet shadow-lift transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] data-ending-style:translate-x-full data-starting-style:translate-x-full"
+                  : "fixed inset-x-0 bottom-0 z-50 h-[85dvh] rounded-t-2xl border-t border-rule bg-sheet pb-[env(safe-area-inset-bottom)] shadow-lift transition-transform duration-200 ease-out data-ending-style:translate-y-full data-starting-style:translate-y-full"
+              }
+            >
               {selected !== null && (
                 <SourcePanel
-                  apiKey={identity.key}
-                  chunkId={selected}
+                  apiKey={selected.apiKey}
+                  chunkId={selected.chunkId}
                   onClose={() => setSelected(null)}
                   titleAs={Dialog.Title}
+                  onAskAbout={(q) => {
+                    setSelected(null);
+                    askAbout(q);
+                  }}
                 />
               )}
             </Dialog.Popup>
           </Dialog.Portal>
         </Dialog.Root>
       )}
+
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} actions={actions} onAsk={(q) => askAbout(q, true)} />
     </>
   );
 }

@@ -1,5 +1,5 @@
-import { BookOpen, ExternalLink, Globe, Hash, Layers, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BookOpen, ExternalLink, Globe, Hash, Layers, MessageSquareQuote, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, ITEM_TITLES, type Source } from "../lib/api";
 
@@ -9,11 +9,19 @@ interface Props {
   onClose: () => void;
   /** Rendered inside a dialog on small screens, which supplies its own title element. */
   titleAs?: React.ElementType;
+  /** Ask a question about a passage (or a selection in it). */
+  onAskAbout?: (question: string) => void;
+}
+
+/** A question that quotes the text and names its filing, so retrieval finds the right place. */
+export function questionAbout(source: Source, quote: string): string {
+  const clipped = quote.length > 300 ? `${quote.slice(0, 300)}…` : quote;
+  return `In ${source.company}'s FY${source.fiscal_year} 10-K (Item ${source.item}), it says: "${clipped.replace(/\s+/g, " ").trim()}" What does this mean, and what else does the filing say about it?`;
 }
 
 type State = { status: "loading" } | { status: "ready"; source: Source } | { status: "error"; message: string };
 
-export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2" }: Props) {
+export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2", onAskAbout }: Props) {
   const [state, setState] = useState<State>({ status: "loading" });
 
   // Fetching is a side effect tied to which passage is open, so it lives in an effect.
@@ -64,12 +72,28 @@ export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2" }:
           {state.message}
         </p>
       )}
-      {state.status === "ready" && <SourceBody source={state.source} />}
+      {state.status === "ready" && <SourceBody source={state.source} onAskAbout={onAskAbout} />}
     </div>
   );
 }
 
-function SourceBody({ source }: { source: Source }) {
+function SourceBody({ source, onAskAbout }: { source: Source; onAskAbout?: (question: string) => void }) {
+  const textRef = useRef<HTMLDivElement>(null);
+  const [selection, setSelection] = useState<{ text: string; x: number; y: number } | null>(null);
+
+  // Selecting text inside the passage offers to ask about exactly that text.
+  const readSelection = () => {
+    const sel = window.getSelection();
+    const box = textRef.current;
+    const text = sel?.toString().trim() ?? "";
+    if (!sel || !box || sel.rangeCount === 0 || text.length < 12 || !box.contains(sel.anchorNode)) {
+      setSelection(null);
+      return;
+    }
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const outer = box.getBoundingClientRect();
+    setSelection({ text, x: rect.left - outer.left + rect.width / 2, y: rect.top - outer.top + box.scrollTop });
+  };
   const before = source.text.slice(0, source.highlight_start);
   const cited = source.text.slice(source.highlight_start, source.highlight_end);
   const after = source.text.slice(source.highlight_end);
@@ -99,7 +123,40 @@ function SourceBody({ source }: { source: Source }) {
           </a>
         </dd>
       </dl>
-      <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-5">
+      {onAskAbout && (
+        <div className="border-b border-rule px-5 py-2.5">
+          <button
+            type="button"
+            onClick={() => onAskAbout(questionAbout(source, source.text.slice(source.highlight_start, source.highlight_end)))}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-mark/50 px-2.5 py-1.5 text-[13px] text-mark-ink transition-colors hover:bg-mark"
+          >
+            <MessageSquareQuote aria-hidden className="size-4" />
+            Ask about this passage
+          </button>
+          <span className="ml-2 text-[12px] text-ink-4">or select any text in it</span>
+        </div>
+      )}
+      <div
+        ref={textRef}
+        onMouseUp={onAskAbout ? readSelection : undefined}
+        onKeyUp={onAskAbout ? readSelection : undefined}
+        className="relative min-h-0 flex-1 overflow-y-auto px-5 py-5"
+      >
+        {selection && onAskAbout && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onAskAbout(questionAbout(source, selection.text));
+              setSelection(null);
+            }}
+            className="absolute z-10 inline-flex -translate-x-1/2 -translate-y-[calc(100%+8px)] animate-pop items-center gap-1.5 rounded-full bg-ink px-3 py-1.5 text-[12px] font-medium whitespace-nowrap text-paper shadow-lift"
+            style={{ left: selection.x, top: selection.y }}
+          >
+            <MessageSquareQuote aria-hidden className="size-3.5" />
+            Ask about this
+          </button>
+        )}
         <p className="font-serif text-[17px] leading-[1.7] whitespace-pre-line text-ink-3">
           {truncatedStart && <span aria-hidden>… </span>}
           {before}

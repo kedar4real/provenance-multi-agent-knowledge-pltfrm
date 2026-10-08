@@ -1,12 +1,23 @@
 import { ChevronRight, Receipt } from "lucide-react";
 
 import type { AgentResult, LLMCall } from "../lib/api";
+import { timedFromTrace, type TimedStep } from "../lib/useAgentRun";
+import { Waterfall } from "./charts";
 import { STEP_LABELS, formatMs } from "../lib/steps";
 
 /** How the answer was made: each step's time, the model calls it made, their tokens and
  *  API-equivalent cost. Parallel steps (search and SQL) overlap, so step times don't add up
  *  to the total; the total is measured in the browser. */
-export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsedMs: number | null }) {
+export function TracePanel({
+  result,
+  elapsedMs,
+  steps,
+}: {
+  result: AgentResult;
+  elapsedMs: number | null;
+  steps?: TimedStep[];
+}) {
+  const timed = steps && steps.length > 0 ? steps : timedFromTrace(result.trace);
   const calls = result.control?.usage.calls ?? [];
   const byNode = new Map<string, LLMCall[]>();
   for (const call of calls) byNode.set(call.node, [...(byNode.get(call.node) ?? []), call]);
@@ -24,6 +35,21 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
           {elapsedMs !== null && <> · {formatMs(elapsedMs)}</>}
         </span>
       </summary>
+      <div className="border-t border-rule px-4 pt-4 pb-2">
+        <p className="mb-2 text-[12px] text-ink-3">
+          When each step ran{steps && steps.length > 0 ? "" : " (laid end to end: this answer was stored without timings)"}.
+          Searching filings and querying financial data run in parallel.
+        </p>
+        <Waterfall
+          steps={timed}
+          totalMs={elapsedMs ?? timed.at(-1)?.at ?? 0}
+          labelOf={(s) => STEP_LABELS[s] ?? s}
+          isProblem={(i) => {
+            const s = timed[i];
+            return Boolean(s && ((s.step === "verify" && s.detail.ok === false) || s.step === "abstain"));
+          }}
+        />
+      </div>
       <div className="overflow-x-auto border-t border-rule">
         <table className="greenbar w-full text-left text-[13px]">
           <caption className="sr-only">Steps, model calls, tokens and cost for this answer</caption>

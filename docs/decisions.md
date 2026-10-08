@@ -300,3 +300,18 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - Integration tests use the repo's own `docker-compose.yml` (real ParadeDB and Redis 8), so CI runs the stack developers run. gitleaks scans the full history. `mcpgate` is built as a wheel and run in an environment without provenance, which proves the "installable alone" claim.
 - **PyTorch's CPU index on Linux only.** The lockfile held 43 NVIDIA packages (about 3 GB) for models that run on CPU. torch became a direct dependency so a Linux-only index source applies; Windows still resolves from PyPI and its torch version didn't change.
 - **Deferred:** the faithfulness gate (needs a baseline and a Groq key as a repository secret).
+
+## Streaming, dashboard, audit view and charts
+
+### Answer streaming without a second code path
+- A ContextVar token sink, set by the writer for its call. The OpenAI-compatible provider streams only when a sink is set and the request is free text (never JSON, tools or logprobs), forwards fragments, and still returns one complete ChatResponse. Router failover, metering, cost and the response cache are untouched, and the verifier still checks the whole answer.
+- Every provider attempt starts with `reset`, so a failover, a revision or an escalation replaces what was shown instead of appending to it. The UI labels the streamed text an "unverified draft" until the result arrives.
+- Rejected: a separate `stream()` method on every layer (router, metering, cache) - four layers to keep in sync for the same behaviour.
+
+### Reading the audit log from the app
+- The app role still has INSERT only on audit_log. Auditors read through two owner-run functions that raise unless `'auditor' = ANY(app_groups())`, so the check rests on the HMAC-signed groups, not on the API. The API also returns 403 first, for a clear error. Quarantined passages are read through row-level security like any chunk.
+
+### Charts
+- Hand-rolled SVG (about 400 lines) instead of a chart library: five chart forms, and the bundle stays small (heavy views are lazy-loaded).
+- Colours were computed, not picked: the dataviz validator rejected ledger green next to red pencil (protan dE 5.8) and amber next to red (deutan dE 1.1); the shipped order (green, blue, red pencil, violet) passes every check in light and dark mode, and its first three colours pass all-pairs. Status colours (ok, warning, danger) are separate and always paired with an icon and a label.
+- Every chart has a tooltip and a table view; grouped columns don't label caps (they collided), single series do.

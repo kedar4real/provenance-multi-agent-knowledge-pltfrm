@@ -32,8 +32,14 @@ the same question and is told there is nothing they can see that answers it.*
 - **MCP:** `provenance-mcp` exposes the platform's tools to Claude Desktop and other clients,
   and **[mcpgate](packages/mcpgate)**, a standalone gateway, sits in front of any MCP server
   to catch tool poisoning, rug pulls and injected tool output.
-- **A web app** (React) that shows each step as it happens, citations that open the source
-  passage with the cited span highlighted, per-step cost and timing, and a user switcher.
+- **A web app** (React) that streams each step and the answer's text as it is written,
+  then the verified answer: citations open the source passage with the cited span
+  highlighted, any sentence can be clicked to see the evidence behind it, numeric answers
+  get a chart of the data they cite, and a timing chart shows when each step ran. It also
+  has side-by-side **Compare** (one question asked as two people, to see row-level security
+  at work), a **Dashboard** of live cache, routing, token, cost and latency figures, an
+  auditor-only **Audit** view of the tool-call log and quarantined passages, per-user
+  history, Markdown/PDF export, "ask about this passage", and a Ctrl+K command palette.
 
 Everything runs on free tiers (Gemini, Groq) and CPU-only local encoder models. The cost
 figures reported here are *API-equivalent*: real token counts priced at Claude Haiku and
