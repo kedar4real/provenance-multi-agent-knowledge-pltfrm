@@ -1,4 +1,4 @@
-import { ExternalLink, X } from "lucide-react";
+import { BookOpen, ExternalLink, Globe, Hash, Layers, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api, ApiError, ITEM_TITLES, type Source } from "../lib/api";
@@ -36,8 +36,11 @@ export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2" }:
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-3 border-b-[3px] border-double border-rule-strong px-5 py-4">
-        <div className="min-w-0">
+      <header className="flex items-start justify-between gap-3 border-b border-rule px-5 py-4">
+        <span aria-hidden className="icon-tile size-10 rounded-xl">
+          <BookOpen className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
           <p className="smallcaps text-pencil">Source exhibit</p>
           <Title className="mt-1 truncate font-display text-[22px] leading-tight">
             {state.status === "ready"
@@ -49,7 +52,7 @@ export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2" }:
           type="button"
           onClick={onClose}
           aria-label="Close source"
-          className="-m-1.5 rounded-md p-1.5 text-ink-3 hover:bg-inset hover:text-ink"
+          className="-m-1 grid size-8 place-items-center rounded-full text-ink-3 transition-[background-color,transform] hover:rotate-90 hover:bg-inset hover:text-ink"
         >
           <X aria-hidden className="size-4" />
         </button>
@@ -76,13 +79,13 @@ function SourceBody({ source }: { source: Source }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-b border-rule px-5 py-3 text-[13px]">
-        <dt className="smallcaps pt-0.5 text-ink-4">Section</dt>
+        <dt className="smallcaps flex items-center gap-1.5 pt-0.5 text-ink-4"><Layers aria-hidden className="size-3" />Section</dt>
         <dd>
           Item {source.item} · {ITEM_TITLES[source.item] ?? source.section_title}
         </dd>
-        <dt className="smallcaps pt-0.5 text-ink-4">Accession</dt>
+        <dt className="smallcaps flex items-center gap-1.5 pt-0.5 text-ink-4"><Hash aria-hidden className="size-3" />Accession</dt>
         <dd className="font-mono text-[12px] tabular-nums">{source.accession}</dd>
-        <dt className="smallcaps pt-0.5 text-ink-4">Filing</dt>
+        <dt className="smallcaps flex items-center gap-1.5 pt-0.5 text-ink-4"><Globe aria-hidden className="size-3" />Filing</dt>
         <dd>
           <a
             href={source.url}
@@ -126,7 +129,7 @@ function SourceSkeleton() {
   return (
     <div className="space-y-3 px-5 py-6" aria-busy="true" aria-label="Loading passage">
       {[92, 100, 85, 97, 60].map((w, i) => (
-        <div key={i} className="h-3.5 animate-pulse rounded bg-inset" style={{ width: `${w}%` }} />
+        <div key={i} className="skeleton h-3.5" style={{ width: `${w}%` }} />
       ))}
     </div>
   );

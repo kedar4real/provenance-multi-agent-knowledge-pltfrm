@@ -5,8 +5,8 @@ import { cn } from "../lib/cn";
 type Variant = "primary" | "ghost" | "outline";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-ink text-paper shadow-[2px_2px_0_var(--color-pencil)] hover:bg-ink-2 active:shadow-none",
-  outline: "border border-rule-strong bg-sheet text-ink hover:shadow-[2px_2px_0_var(--color-rule)]",
+  primary: "bg-ink text-paper shadow-card hover:-translate-y-px hover:bg-ink-2 hover:shadow-lift",
+  outline: "border border-rule bg-sheet text-ink shadow-card hover:-translate-y-px hover:border-rule-strong",
   ghost: "text-ink-2 hover:bg-inset hover:text-ink",
 };
 
@@ -17,7 +17,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLBut
         ref={ref}
         type={type}
         className={cn(
-          "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium transition-[background-color,border-color,box-shadow,transform] duration-100 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
+          "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-[background-color,border-color,box-shadow,transform] duration-100 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
           variants[variant],
           className,
         )}

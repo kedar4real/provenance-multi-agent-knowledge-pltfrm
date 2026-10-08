@@ -1,3 +1,5 @@
+import { ChevronRight, Receipt } from "lucide-react";
+
 import type { AgentResult, LLMCall } from "../lib/api";
 import { STEP_LABELS, formatMs } from "../lib/steps";
 
@@ -11,8 +13,10 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
   const usage = result.control?.usage;
 
   return (
-    <details className="rounded-lg border border-rule bg-sheet">
-      <summary className="cursor-pointer px-4 py-3 text-sm text-ink-3 hover:text-ink">
+    <details className="group/trace overflow-hidden rounded-xl border border-rule bg-sheet shadow-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm text-ink-3 hover:text-ink [&::-webkit-details-marker]:hidden">
+        <ChevronRight aria-hidden className="size-4 transition-transform duration-200 group-open/trace:rotate-90" />
+        <Receipt aria-hidden className="size-4 text-ink-4" />
         <span className="font-medium text-ink-2">Schedule of work</span>
         <span className="ml-2">how this answer was made</span>
         <span className="ml-2 font-mono text-[12px] text-ink-4 tabular-nums">

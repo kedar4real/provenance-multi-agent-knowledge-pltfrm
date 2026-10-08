@@ -64,7 +64,7 @@ export function ResultsSummary({ result }: { result: SearchResult }) {
 
       {total > 0 && (
         <div>
-          <div className="flex h-1.5 overflow-hidden rounded-full bg-inset" aria-hidden>
+          <div className="flex h-2 origin-left animate-[grow_600ms_ease-out_both] overflow-hidden rounded-full bg-inset" aria-hidden>
             {stages.map((s) => (
               <div
                 key={s.key}

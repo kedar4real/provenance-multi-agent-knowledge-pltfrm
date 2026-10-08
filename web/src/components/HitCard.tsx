@@ -1,3 +1,5 @@
+import { Building2 } from "lucide-react";
+
 import { ITEM_TITLES, type Hit } from "../lib/api";
 import { cn } from "../lib/cn";
 
@@ -14,14 +16,15 @@ export function HitCard({ hit, rank, selected, onSelect }: Props) {
   return (
     <article
       className={cn(
-        "group relative grid grid-cols-1 gap-y-3 rounded-lg border bg-sheet p-4 transition-[border-color,box-shadow] duration-150 sm:grid-cols-[6.5rem_1fr] sm:gap-x-4 sm:gap-y-0",
-        selected
-          ? "border-ink shadow-[3px_3px_0_var(--color-pencil)]"
-          : "border-rule hover:border-rule-strong hover:shadow-[3px_3px_0_var(--color-rule)]",
+        "group lift relative grid grid-cols-1 gap-y-3 rounded-xl border bg-sheet p-4 sm:grid-cols-[6.5rem_1fr] sm:gap-x-4 sm:gap-y-0",
+        selected ? "border-pencil/60 ring-2 ring-pencil/20" : "border-rule hover:border-rule-strong",
       )}
     >
       <aside className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-rule pb-2.5 text-[12px] sm:block sm:space-y-1.5 sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
-        <p className="font-mono font-medium text-ink tabular-nums">{hit.ticker}</p>
+        <p className="inline-flex items-center gap-1.5 rounded-md bg-ink px-1.5 py-0.5 font-mono font-medium text-paper tabular-nums">
+          <Building2 aria-hidden className="size-3" />
+          {hit.ticker}
+        </p>
         <p className="font-mono text-ink-3 tabular-nums">FY{hit.fiscal_year}</p>
         <p className="text-ink-3">{item}</p>
         <Signals hit={hit} />
@@ -76,7 +79,10 @@ function Signals({ hit }: { hit: Hit }) {
               aria-valuemax={1}
               aria-valuenow={Number(hit.rerank_score.toFixed(2))}
             >
-              <div className="h-full bg-mark-strong" style={{ width: `${Math.max(hit.rerank_score, 0.03) * 100}%` }} />
+              <div
+                className="h-full origin-left animate-[grow_700ms_ease-out_both] rounded-full bg-mark-strong"
+                style={{ width: `${Math.max(hit.rerank_score, 0.03) * 100}%` }}
+              />
             </div>
             <span className="tabular-nums">{hit.rerank_score.toFixed(2)}</span>
           </dd>

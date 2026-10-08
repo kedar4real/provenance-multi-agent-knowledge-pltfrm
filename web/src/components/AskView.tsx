@@ -1,10 +1,26 @@
-import { ArrowRight, ArrowUpRight, Check, CircleAlert, LoaderCircle, ShieldAlert, Zap } from "lucide-react";
-import { Fragment, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  Check,
+  CircleAlert,
+  Coins,
+  Copy,
+  Cpu,
+  FileCheck,
+  FileText,
+  Gauge,
+  LoaderCircle,
+  Send,
+  Sparkles,
+  Table2,
+  Timer,
+  Workflow,
+  Zap,
+} from "lucide-react";
+import { Fragment, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { ApiError, streamQuery, type AgentResult, type Evidence, type TraceEvent } from "../lib/api";
 import { cn } from "../lib/cn";
 import type { Identity } from "../lib/identities";
-import { STEP_LABELS, formatMs } from "../lib/steps";
+import { STEP_ICONS, STEP_LABELS, formatMs } from "../lib/steps";
 import { ExampleList } from "./ExampleList";
 import { TracePanel } from "./TracePanel";
 import { Button } from "./ui";
@@ -17,7 +33,7 @@ const EXAMPLES = [
 
 type RunState =
   | { status: "idle" }
-  | { status: "running"; steps: TraceEvent[] }
+  | { status: "running"; steps: TraceEvent[]; startedAt: number }
   | { status: "done"; steps: TraceEvent[]; result: AgentResult; elapsedMs: number }
   | { status: "error"; steps: TraceEvent[]; message: string };
 
@@ -40,7 +56,7 @@ export function AskView({ identity, onOpenSource }: Props) {
     inFlight.current = controller;
     const steps: TraceEvent[] = [];
     const started = performance.now();
-    setRun({ status: "running", steps });
+    setRun({ status: "running", steps, startedAt: started });
     try {
       await streamQuery(
         identity.key,
@@ -48,7 +64,7 @@ export function AskView({ identity, onOpenSource }: Props) {
         (event) => {
           if (event.kind === "step") {
             steps.push(event.data);
-            setRun({ status: "running", steps: [...steps] });
+            setRun({ status: "running", steps: [...steps], startedAt: started });
           } else if (event.kind === "result") {
             setRun({ status: "done", steps: [...steps], result: event.data, elapsedMs: performance.now() - started });
           } else {
@@ -74,9 +90,9 @@ export function AskView({ identity, onOpenSource }: Props) {
         <label htmlFor={inputId} className="sr-only">
           Ask a question
         </label>
-        <div className="flex items-end gap-3 rounded-lg border border-rule-strong bg-sheet p-2 pl-4 shadow-[3px_3px_0_var(--color-rule)] transition-shadow focus-within:shadow-[3px_3px_0_var(--color-pencil)]">
-          <span aria-hidden className="mb-2 font-display text-xl leading-none text-pencil">
-            Q.
+        <div className="flex items-end gap-3 rounded-2xl border border-rule bg-sheet p-2 pl-3 shadow-card transition-[box-shadow,border-color] duration-200 focus-within:border-pencil/50 focus-within:shadow-glow">
+          <span aria-hidden className="icon-tile mb-0.5 size-9 rounded-xl">
+            <Sparkles className="size-4" />
           </span>
           <textarea
             id={inputId}
@@ -93,9 +109,18 @@ export function AskView({ identity, onOpenSource }: Props) {
             maxLength={1000}
             className="field-sizing-content max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 font-serif text-[17px] placeholder:text-ink-4 focus:outline-none"
           />
-          <Button type="submit" disabled={run.status === "running" || !question.trim()} aria-busy={run.status === "running"}>
-            {run.status === "running" ? "Working…" : "Ask"}
-            {run.status !== "running" && <ArrowRight aria-hidden className="size-4" />}
+          <Button
+            type="submit"
+            disabled={run.status === "running" || !question.trim()}
+            aria-busy={run.status === "running"}
+            className="h-10 rounded-xl px-4"
+          >
+            {run.status === "running" ? (
+              <LoaderCircle aria-hidden className="size-4 animate-spin" />
+            ) : (
+              <Send aria-hidden className="size-4" />
+            )}
+            {run.status === "running" ? "Working" : "Ask"}
           </Button>
         </div>
       </form>
@@ -110,10 +135,21 @@ export function AskView({ identity, onOpenSource }: Props) {
         />
       )}
 
-      {run.status !== "idle" && <StepTimeline steps={run.steps} running={run.status === "running"} />}
+      {run.status !== "idle" && (
+        <StepTimeline
+          steps={run.steps}
+          running={run.status === "running"}
+          startedAt={run.status === "running" ? run.startedAt : null}
+          elapsedMs={run.status === "done" ? run.elapsedMs : null}
+        />
+      )}
 
       {run.status === "error" && (
-        <p role="alert" className="rounded-lg border border-l-[3px] border-danger/40 border-l-danger bg-sheet px-4 py-3 text-sm text-danger">
+        <p
+          role="alert"
+          className="flex animate-rise items-start gap-3 rounded-xl border border-danger/30 bg-sheet px-4 py-3 text-sm text-danger shadow-card"
+        >
+          <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           {run.message}
         </p>
       )}
@@ -144,20 +180,46 @@ const ESCALATION_REASONS: Record<string, string> = {
   low_confidence: "the small model's answer scored low confidence",
 };
 
-function StepTimeline({ steps, running }: { steps: TraceEvent[]; running: boolean }) {
+function StepTimeline({
+  steps,
+  running,
+  startedAt,
+  elapsedMs,
+}: {
+  steps: TraceEvent[];
+  running: boolean;
+  startedAt: number | null;
+  elapsedMs: number | null;
+}) {
   return (
-    <section aria-label="Agent steps" aria-live="polite">
-      <p className="smallcaps mb-2 text-ink-3">Working</p>
-      <ol className="border-t border-rule">
+    <section
+      aria-label="Agent steps"
+      aria-live="polite"
+      className="relative overflow-hidden rounded-2xl border border-rule bg-sheet shadow-card"
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-rule px-4 py-3">
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <Workflow aria-hidden className="size-4 text-ink-3" />
+          {running ? "Working on it" : "How it was answered"}
+        </span>
+        <span className="flex items-center gap-1.5 font-mono text-[12px] text-ink-3 tabular-nums">
+          <Timer aria-hidden className="size-3.5" />
+          {running && startedAt !== null ? <Elapsed since={startedAt} /> : elapsedMs !== null ? formatMs(elapsedMs) : "–"}
+        </span>
+      </header>
+      {running && (
+        <div aria-hidden className="absolute inset-x-0 top-0 h-0.5 overflow-hidden">
+          <div className="h-full w-1/3 animate-sweep bg-gradient-to-r from-transparent via-pencil to-transparent" />
+        </div>
+      )}
+      <ol className="px-4 py-1">
         {steps.map((step, i) => (
-          <li
-            key={i}
-            className="grid animate-rise grid-cols-[2rem_1.25rem_1fr] items-start gap-x-2 border-b border-rule py-2.5 text-sm"
-            style={{ animationDuration: "320ms" }}
-          >
-            <span className="pt-px font-mono text-[12px] text-ink-4 tabular-nums">{String(i + 1).padStart(2, "0")}</span>
+          <li key={i} className="relative grid animate-rise grid-cols-[2rem_1fr] gap-x-3 py-2.5 text-sm" style={{ animationDuration: "380ms" }}>
+            {i < steps.length - 1 + (running ? 1 : 0) && (
+              <span aria-hidden className="absolute top-10 bottom-0 left-4 w-px -translate-x-1/2 bg-rule" />
+            )}
             <StepIcon step={step} />
-            <div className="min-w-0">
+            <div className="min-w-0 pt-1">
               <div className="flex items-baseline">
                 <span className="font-medium">{STEP_LABELS[step.step] ?? step.step}</span>
                 <span aria-hidden className="leader" />
@@ -168,17 +230,29 @@ function StepTimeline({ steps, running }: { steps: TraceEvent[]; running: boolea
           </li>
         ))}
         {running && (
-          <li className="grid grid-cols-[2rem_1.25rem_1fr] items-center gap-x-2 border-b border-rule py-2.5 text-sm text-ink-3">
-            <span className="font-mono text-[12px] text-ink-4 tabular-nums">
-              {String(steps.length + 1).padStart(2, "0")}
+          <li className="grid grid-cols-[2rem_1fr] items-center gap-x-3 py-2.5 text-sm text-ink-3">
+            <span className="relative grid size-8 place-items-center">
+              <span aria-hidden className="absolute inset-0 animate-ping-soft rounded-full bg-pencil/40" />
+              <span className="relative grid size-8 place-items-center rounded-full bg-pencil text-paper">
+                <LoaderCircle aria-hidden className="size-4 animate-spin" />
+              </span>
             </span>
-            <LoaderCircle aria-hidden className="size-4 animate-spin text-pencil motion-reduce:animate-none" />
             <span className="italic">{inProgress(steps)}</span>
           </li>
         )}
       </ol>
     </section>
   );
+}
+
+/** A ticking stopwatch for the run in progress. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => performance.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(performance.now()), 100);
+    return () => window.clearInterval(id);
+  }, []);
+  return <>{((now - since) / 1000).toFixed(1)} s</>;
 }
 
 function inProgress(steps: TraceEvent[]): string {
@@ -205,15 +279,30 @@ function capitalize(text: string): string {
 }
 
 function StepIcon({ step }: { step: TraceEvent }) {
-  const failed = step.step === "verify" && step.detail.ok === false;
-  if (failed) return <CircleAlert aria-label="needs revision" className="mt-0.5 size-4 shrink-0 text-danger" />;
-  if (step.step === "escalate")
-    return <ArrowUpRight aria-label="escalated" className="mt-0.5 size-4 shrink-0 text-ink-2" />;
-  if (step.step === "abstain")
-    return <ShieldAlert aria-label="withheld" className="mt-0.5 size-4 shrink-0 text-danger" />;
-  if (step.step === "cache" && step.detail.hit)
-    return <Zap aria-label="answered from cache" className="mt-0.5 size-4 shrink-0 text-ok" />;
-  return <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-ok" />;
+  const Icon = STEP_ICONS[step.step] ?? Check;
+  const failed = (step.step === "verify" && step.detail.ok === false) || step.step === "abstain";
+  const cached = step.step === "cache" && Boolean(step.detail.hit);
+  const label = failed ? "needs attention" : cached ? "answered from cache" : "done";
+  return (
+    <span
+      aria-label={label}
+      className={cn(
+        "relative grid size-8 animate-pop place-items-center rounded-full",
+        failed ? "bg-danger/12 text-danger" : cached ? "bg-ok/15 text-ok" : "bg-mark/60 text-mark-ink",
+      )}
+    >
+      {cached ? <Zap aria-hidden className="size-4" /> : <Icon aria-hidden className="size-4" />}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute -right-0.5 -bottom-0.5 grid size-3.5 place-items-center rounded-full ring-2 ring-sheet",
+          failed ? "bg-danger text-paper" : "bg-ok text-paper",
+        )}
+      >
+        {failed ? <CircleAlert className="size-2.5" /> : <Check className="size-2.5" strokeWidth={3} />}
+      </span>
+    </span>
+  );
 }
 
 function StepDetail({ step }: { step: TraceEvent }) {
@@ -331,7 +420,7 @@ function AnswerView({
   if (result.control?.abstained) {
     return (
       <article className="space-y-5">
-        <div className="border-l-[3px] border-pencil bg-sheet px-5 py-4">
+        <div className="animate-rise rounded-2xl border border-pencil/30 bg-sheet px-5 py-4 shadow-card">
           <p className="stamp mb-3 text-pencil">Withheld</p>
           <p className="font-display text-2xl">Not confident enough to answer.</p>
           <p className="mt-1 text-sm text-ink-2">
@@ -357,7 +446,7 @@ function AnswerView({
 
   if (result.declined) {
     return (
-      <div className="border-l-[3px] border-rule-strong bg-sheet px-5 py-4">
+      <div className="animate-rise rounded-2xl border border-rule bg-sheet px-5 py-4 shadow-card">
         <p className="font-display text-2xl">No answer from the evidence.</p>
         <p className="mt-1 text-sm text-ink-2">
           Nothing {identity.displayName.split(" ")[0]} can see answers this. It may be in filings outside their
@@ -378,11 +467,17 @@ function AnswerView({
 
   return (
     <article className="space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b-[3px] border-double border-rule-strong pb-3">
-        <h2 className="font-display text-[28px] leading-none">Answer</h2>
+      <header className="flex animate-rise flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-rule pb-3">
+        <h2 className="flex items-center gap-2.5 font-display text-[28px] leading-none">
+          <span aria-hidden className="icon-tile size-9 rounded-xl">
+            <FileCheck className="size-[18px]" />
+          </span>
+          Answer
+        </h2>
         <div className="flex flex-wrap items-center gap-3">
           <ConfidenceBadge confidence={result.confidence} />
           <VerificationBadge result={result} />
+          <CopyButton text={result.answer} />
         </div>
       </header>
       <RunSummary result={result} />
@@ -409,7 +504,11 @@ function renderAnswer(text: string, byId: Map<string, Evidence>, onOpen: (id: st
   const flush = () => {
     if (!bullets.length) return;
     blocks.push(
-      <ul key={`ul-${blocks.length}`} className="list-disc space-y-1 pl-6 marker:text-ink-4">
+      <ul
+        key={`ul-${blocks.length}`}
+        className="animate-rise list-disc space-y-1 pl-6 marker:text-pencil"
+        style={{ animationDelay: `${120 + blocks.length * 90}ms` }}
+      >
         {bullets.map((b, i) => (
           <li key={i}>{renderWithCitations(b, byId, onOpen)}</li>
         ))}
@@ -425,7 +524,12 @@ function renderAnswer(text: string, byId: Map<string, Evidence>, onOpen: (id: st
       continue;
     }
     flush();
-    if (line) blocks.push(<p key={`p-${blocks.length}`}>{renderWithCitations(line, byId, onOpen)}</p>);
+    if (line)
+      blocks.push(
+        <p key={`p-${blocks.length}`} className="animate-rise" style={{ animationDelay: `${120 + blocks.length * 90}ms` }}>
+          {renderWithCitations(line, byId, onOpen)}
+        </p>,
+      );
   }
   flush();
   return blocks;
@@ -446,7 +550,7 @@ function renderWithCitations(text: string, byId: Map<string, Evidence>, onOpen: 
             onClick={() => onOpen(id)}
             disabled={!byId.has(id)}
             aria-label={`Source ${id}: ${byId.get(id)?.label ?? "missing"}`}
-            className="mx-0.5 inline-flex -translate-y-[0.35em] items-center rounded-sm border-b-2 border-mark-strong bg-mark/60 px-1 align-baseline font-mono text-[11px] leading-[1.4] font-medium text-mark-ink transition-colors hover:bg-mark hover:text-ink disabled:border-danger disabled:bg-transparent disabled:text-danger"
+            className="mx-0.5 inline-flex -translate-y-[0.35em] items-center rounded-md bg-mark/70 px-1.5 align-baseline font-mono text-[11px] leading-[1.5] font-medium text-mark-ink ring-1 ring-mark-strong/40 transition-[background-color,transform,box-shadow] duration-150 hover:-translate-y-[0.5em] hover:bg-mark hover:text-ink hover:shadow-card disabled:bg-transparent disabled:text-danger disabled:ring-danger/50"
           >
             {id}
           </button>
@@ -476,19 +580,55 @@ function RunSummary({ result }: { result: AgentResult }) {
   const c = result.control;
   if (!c) return null;
   const tokens = c.usage.input_tokens + c.usage.output_tokens;
-  const parts = [
-    c.cache?.hit ? "From an earlier answer" : `${c.tier === "small" ? "Small" : "Large"} model`,
-    c.escalated && "escalated",
-    !c.cache?.hit && `${tokens.toLocaleString()} tokens`,
-    !c.cache?.hit && `$${c.usage.cost_usd.toFixed(4)} at list prices`,
-  ].filter(Boolean);
+  const item = "inline-flex items-center gap-1.5 rounded-full bg-inset px-2.5 py-1";
   return (
     <p
-      className="font-mono text-[12px] text-ink-4 tabular-nums"
+      className="flex animate-rise flex-wrap gap-2 font-mono text-[12px] text-ink-3 tabular-nums"
       title="API-equivalent cost: tokens priced at Claude Haiku (small) and Sonnet (large) list prices. The real calls ran on free tiers."
     >
-      {parts.join(" · ")}
+      {c.cache?.hit ? (
+        <span className={item}>
+          <Zap aria-hidden className="size-3.5 text-ok" />
+          From an earlier answer
+        </span>
+      ) : (
+        <>
+          <span className={item}>
+            <Cpu aria-hidden className="size-3.5" />
+            {c.tier === "small" ? "Small" : "Large"} model{c.escalated && " · escalated"}
+          </span>
+          <span className={item}>
+            <Coins aria-hidden className="size-3.5" />
+            {tokens.toLocaleString()} tokens · ${c.usage.cost_usd.toFixed(4)}
+          </span>
+        </>
+      )}
     </p>
+  );
+}
+
+/** Copies the answer text, citations included. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1600);
+        });
+      }}
+      aria-label={copied ? "Copied" : "Copy answer"}
+      title="Copy answer"
+      className="grid size-8 place-items-center rounded-lg text-ink-3 transition-colors hover:bg-inset hover:text-ink"
+    >
+      {copied ? (
+        <Check aria-hidden className="size-4 animate-pop text-ok" />
+      ) : (
+        <Copy aria-hidden className="size-4" />
+      )}
+    </button>
   );
 }
 
@@ -511,8 +651,14 @@ function ConfidenceBadge({ confidence }: { confidence: number | null }) {
       )}
       title="Calibrated probability that the answer's weakest claim is supported by the evidence"
     >
-      <span className="smallcaps text-ink-4">Confidence</span>
+      <Gauge aria-hidden className="size-4 self-center" />
       <span className="font-mono text-[15px] font-medium">{Math.round(confidence * 100)}%</span>
+      <span className="h-1.5 w-14 self-center overflow-hidden rounded-full bg-inset" aria-hidden>
+        <span
+          className={cn("block h-full origin-left animate-[grow_700ms_ease-out_both] rounded-full", confidence >= 0.6 ? "bg-ok" : "bg-danger")}
+          style={{ width: `${Math.round(confidence * 100)}%` }}
+        />
+      </span>
       <span className="italic">{confidenceWord(confidence)}</span>
     </p>
   );
@@ -522,7 +668,7 @@ function ClaimConfidence({ claims }: { claims: AgentResult["claims"] }) {
   const scored = claims.filter((c): c is typeof c & { confidence: number } => c.confidence !== null);
   if (scored.length < 2) return null;
   return (
-    <details className="border-y border-rule py-3">
+    <details className="rounded-xl border border-rule bg-sheet px-4 py-3 shadow-card">
       <summary className="cursor-pointer text-sm text-ink-3 hover:text-ink">
         Confidence per claim (the answer is as strong as its weakest)
       </summary>
@@ -589,16 +735,20 @@ function EvidenceList({
   const uncitedFacts = allFacts.length - facts.length;
   return (
     <section aria-label="Evidence" className="space-y-4 pt-3">
-      <h2 className="flex items-baseline gap-3">
+      <h2 className="flex items-center gap-2.5">
+        <span aria-hidden className="icon-tile size-8 rounded-lg">
+          <FileText className="size-4" />
+        </span>
         <span className="font-display text-xl">Exhibits</span>
         <span className="smallcaps text-ink-4">cited evidence</span>
       </h2>
       {facts.length > 0 && sql && (
-        <div className="overflow-x-auto rounded-lg border border-rule bg-sheet">
+        <div className="overflow-x-auto rounded-xl border border-rule bg-sheet shadow-card">
           <table className="greenbar w-full text-left text-[13px]">
             <thead className="border-b border-rule-strong text-ink-3">
               <tr>
                 <th scope="col" className="smallcaps px-3 py-2 font-medium">
+                  <Table2 aria-hidden className="size-3.5" />
                   <span className="sr-only">Citation</span>
                 </th>
                 {sql.columns.map((c) => (
@@ -652,15 +802,15 @@ function PassageList({ passages, onOpen }: { passages: Evidence[]; onOpen: (id: 
   return (
     <>
       {passages.length > 0 && (
-        <ul className="space-y-2">
-          {passages.map((p) => (
-            <li key={p.id}>
+        <ul className="space-y-2.5">
+          {passages.map((p, i) => (
+            <li key={p.id} className="animate-rise" style={{ animationDelay: `${i * 60}ms` }}>
               <button
                 type="button"
                 onClick={() => onOpen(p.id)}
-                className="group grid w-full grid-cols-[2.75rem_1fr] gap-x-3 rounded-lg border border-rule bg-sheet px-4 py-3 text-left transition-[border-color,box-shadow] hover:border-rule-strong hover:shadow-[3px_3px_0_var(--color-rule)]"
+                className="group lift grid w-full grid-cols-[2.75rem_1fr] gap-x-3 rounded-xl border border-rule bg-sheet px-4 py-3 text-left hover:border-rule-strong"
               >
-                <span className="pt-0.5 font-mono text-[12px] font-medium text-mark-ink">{p.id}</span>
+                <span className="icon-tile h-7 w-9 rounded-lg font-mono text-[11px] font-medium">{p.id}</span>
                 <span className="min-w-0">
                   <span className="block text-[13px] text-ink-3">{p.label}</span>
                   <span className="mt-1 line-clamp-2 font-serif text-[15px] text-ink-2 group-hover:text-ink">
