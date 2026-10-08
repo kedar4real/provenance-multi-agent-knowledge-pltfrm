@@ -277,3 +277,10 @@ async def test_rerank_judges_relevance_to_the_users_question_not_the_rewrite(
     await retriever.search(tech, "What were Tesla's tariff costs?", k=3)
 
     assert reranker.queries == ["What were Tesla's tariff costs?"]
+
+
+def test_bm25_bitmap_intersection_is_off_for_new_connections(migrated: Settings) -> None:
+    # Migration 0004: the parallel bitmap-intersection path crashed filtered BM25 queries.
+    with psycopg.connect(migrated.app_dsn) as conn:
+        setting = conn.execute("SHOW paradedb.enable_bitmap_intersection").fetchone()
+    assert setting == ("off",)
