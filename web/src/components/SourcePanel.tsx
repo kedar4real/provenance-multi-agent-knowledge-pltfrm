@@ -36,10 +36,10 @@ export function SourcePanel({ apiKey, chunkId, onClose, titleAs: Title = "h2" }:
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-3 border-b border-rule px-5 py-4">
+      <header className="flex items-start justify-between gap-3 border-b-[3px] border-double border-rule-strong px-5 py-4">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-ink-3">Source</p>
-          <Title className="mt-0.5 truncate font-serif text-lg font-medium">
+          <p className="smallcaps text-pencil">Source exhibit</p>
+          <Title className="mt-1 truncate font-display text-[22px] leading-tight">
             {state.status === "ready"
               ? `${state.source.company} · 10-K FY${state.source.fiscal_year}`
               : "Loading passage…"}
@@ -76,19 +76,19 @@ function SourceBody({ source }: { source: Source }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-b border-rule px-5 py-3 text-[13px]">
-        <dt className="text-ink-3">Section</dt>
+        <dt className="smallcaps pt-0.5 text-ink-4">Section</dt>
         <dd>
           Item {source.item} · {ITEM_TITLES[source.item] ?? source.section_title}
         </dd>
-        <dt className="text-ink-3">Accession</dt>
+        <dt className="smallcaps pt-0.5 text-ink-4">Accession</dt>
         <dd className="font-mono text-[12px] tabular-nums">{source.accession}</dd>
-        <dt className="text-ink-3">Filing</dt>
+        <dt className="smallcaps pt-0.5 text-ink-4">Filing</dt>
         <dd>
           <a
             href={source.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 underline decoration-rule-strong underline-offset-2 hover:decoration-ink"
+            className="inline-flex items-center gap-1 underline decoration-pencil/50 underline-offset-2 hover:decoration-pencil"
           >
             Open on sec.gov
             <ExternalLink aria-hidden className="size-3" />

@@ -13,16 +13,17 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
   return (
     <details className="rounded-lg border border-rule bg-sheet">
       <summary className="cursor-pointer px-4 py-3 text-sm text-ink-3 hover:text-ink">
-        How this answer was made
+        <span className="font-medium text-ink-2">Schedule of work</span>
+        <span className="ml-2">how this answer was made</span>
         <span className="ml-2 font-mono text-[12px] text-ink-4 tabular-nums">
           {result.trace.length} steps · {calls.length} model calls
           {elapsedMs !== null && <> · {formatMs(elapsedMs)}</>}
         </span>
       </summary>
       <div className="overflow-x-auto border-t border-rule">
-        <table className="w-full text-left text-[13px]">
+        <table className="greenbar w-full text-left text-[13px]">
           <caption className="sr-only">Steps, model calls, tokens and cost for this answer</caption>
-          <thead className="text-ink-4">
+          <thead className="smallcaps text-ink-4">
             <tr className="border-b border-rule">
               <th scope="col" className="px-4 py-2 font-normal">Step</th>
               <th scope="col" className="px-2 py-2 text-right font-normal">Time</th>
@@ -31,7 +32,7 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
               <th scope="col" className="px-4 py-2 text-right font-normal">Cost</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-rule">
+          <tbody>
             {result.trace.map((step, i) => {
               const own = byNode.get(step.step) ?? [];
               // A node's calls are listed once, on its first step (a revision repeats "write").
@@ -67,7 +68,7 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
             })}
           </tbody>
           {usage && (
-            <tfoot className="border-t border-rule-strong text-ink-2">
+            <tfoot className="border-t-[3px] border-double border-rule-strong text-ink">
               <tr>
                 <th scope="row" className="px-4 py-2 font-medium">Total</th>
                 <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">
