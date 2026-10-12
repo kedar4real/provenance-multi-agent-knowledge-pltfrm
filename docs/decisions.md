@@ -315,3 +315,9 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 - Hand-rolled SVG (about 400 lines) instead of a chart library: five chart forms, and the bundle stays small (heavy views are lazy-loaded).
 - Colours were computed, not picked: the dataviz validator rejected ledger green next to red pencil (protan dE 5.8) and amber next to red (deutan dE 1.1); the shipped order (green, blue, red pencil, violet) passes every check in light and dark mode, and its first three colours pass all-pairs. Status colours (ok, warning, danger) are separate and always paired with an icon and a label.
 - Every chart has a tooltip and a table view; grouped columns don't label caps (they collided), single series do.
+
+## Results that changed decisions (2026-10-12)
+
+- **The calibrator is not served.** Out-of-fold ECE 0.003 looks excellent, but 99% of the judged claims were supported, so "always say ~0.99" scores that well; AUROC 0.58 shows it can barely rank. At the answer level it predicts 0.99 for answers that are 0.88 correct, because claim support is not answer correctness. Showing that number would mislead, and scoring costs seconds of CPU per answer. The fitted model is kept in `eval/reports/calibrator-*.json`; re-run `eval.calibration_eval` to serve one when the labels have enough negatives (or the human audit says the judge is lenient).
+- **Search when SQL finds nothing.** The paired comparison showed the agent losing text questions to the baseline; the cause was numbers-only plans for figures that live in prose. A conditional edge after SQL now runs the filing search in that case, rather than making the planner prompt cleverer: a structural fallback can't be talked out of.
+- **The cost A/B is reported with its confound** (large model unavailable 78% of the time), not as a routing saving; the ratio is what it is on free tiers.

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 440" font-family="system-ui, sans-serif" font-size="11">
+<rect x="40" y="40" width="300" height="300" fill="none" stroke="#bbb"/>
+<line x1="40" y1="340" x2="340" y2="40" stroke="#bbb" stroke-dasharray="4 3"/>
+<text x="190.0" y="368" text-anchor="middle">confidence</text>
+<text x="12" y="190.0" transform="rotate(-90 12 190.0)" text-anchor="middle">accuracy</text>
+<path d="M44.2,43.5 L83.2,40.0 L114.2,40.0 L141.4,40.0 L174.7,40.0 L206.1,40.0 L229.3,40.0 L266.3,40.0 L294.3,40.0 L334.4,42.2" fill="none" stroke="#9a6b00" stroke-width="2"/>
+<circle cx="44.2" cy="43.5" r="6.5" fill="#9a6b00"/>
+<circle cx="83.2" cy="40.0" r="4.2" fill="#9a6b00"/>
+<circle cx="114.2" cy="40.0" r="4.0" fill="#9a6b00"/>
+<circle cx="141.4" cy="40.0" r="3.6" fill="#9a6b00"/>
+<circle cx="174.7" cy="40.0" r="3.9" fill="#9a6b00"/>
+<circle cx="206.1" cy="40.0" r="3.4" fill="#9a6b00"/>
+<circle cx="229.3" cy="40.0" r="3.3" fill="#9a6b00"/>
+<circle cx="266.3" cy="40.0" r="3.7" fill="#9a6b00"/>
+<circle cx="294.3" cy="40.0" r="4.4" fill="#9a6b00"/>
+<circle cx="334.4" cy="42.2" r="6.5" fill="#9a6b00"/>
+<rect x="40" y="364" width="12" height="3" fill="#9a6b00"/>
+<text x="58" y="369">raw_nli</text>
+<path d="M337.4,42.6" fill="none" stroke="#3b6ea8" stroke-width="2"/>
+<circle cx="337.4" cy="42.6" r="6.5" fill="#3b6ea8"/>
+<rect x="40" y="384" width="12" height="3" fill="#3b6ea8"/>
+<text x="58" y="389">platt_nli</text>
+<path d="M337.5,42.6" fill="none" stroke="#6b8f3b" stroke-width="2"/>
+<circle cx="337.5" cy="42.6" r="6.5" fill="#6b8f3b"/>
+<rect x="40" y="404" width="12" height="3" fill="#6b8f3b"/>
+<text x="58" y="409">isotonic_nli</text>
+<path d="M228.1,40.0 L253.4,40.0 L305.7,190.0 L338.0,42.1" fill="none" stroke="#8a4b8f" stroke-width="2"/>
+<circle cx="228.1" cy="40.0" r="2.5" fill="#8a4b8f"/>
+<circle cx="253.4" cy="40.0" r="2.5" fill="#8a4b8f"/>
+<circle cx="305.7" cy="190.0" r="2.7" fill="#8a4b8f"/>
+<circle cx="338.0" cy="42.1" r="6.5" fill="#8a4b8f"/>
+<rect x="40" y="424" width="12" height="3" fill="#8a4b8f"/>
+<text x="58" y="429">ensemble</text>
+</svg>

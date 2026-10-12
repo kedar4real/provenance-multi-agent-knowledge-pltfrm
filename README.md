@@ -36,10 +36,11 @@ Screenshots: [scripts/readme_screenshots.py](scripts/readme_screenshots.py).
   if it fails.
 - **A controller** around the agent: routes simple questions to a small model and escalates
   failures to a large one over the same evidence, serves repeated and reworded questions from
-  a permission-scoped cache, enforces per-caller token budgets and backpressure, and
-  withholds low-confidence answers.
-- **Calibrated confidence per claim** from an NLI model plus number checks, calibrated on
-  judged claims and scored out-of-fold, so "80%" is meant to be right about 80% of the time.
+  a permission-scoped cache, enforces per-caller token budgets and backpressure, and can
+  withhold low-confidence answers (only on a calibrated confidence, so it is off for now: see
+  the results).
+- **Claim confidence** from an NLI model plus number checks, calibrated on judged claims and
+  scored out-of-fold. Built and measured, but not served: see the results below for why.
 - **Security in layers:** Postgres row-level security keyed by HMAC-signed groups (the
   database, not the app, filters rows); read-only SQL role behind an AST guard; prompt-injection
   detection at ingest with quarantine; an append-only audit log.
@@ -138,11 +139,51 @@ cache's entity check (same companies, years, numbers and metrics), false hits ar
 
 ### Answer quality, calibration and cost
 
-Measured by the answer evals ([eval/answer_eval.py](eval/answer_eval.py),
-[calibration_eval.py](eval/calibration_eval.py), [selective_eval.py](eval/selective_eval.py),
-[cost_ab.py](eval/cost_ab.py)), whose runs are limited by free-tier quotas and take many
-hours. Those results are not in this README yet; they will be added here, as measured, when
-the runs finish.
+An LLM judge grades each answer against the golden reference and checks each claim against
+the evidence the answer saw ([eval/answer_eval.py](eval/answer_eval.py)). Free-tier quotas cut
+runs short: the baseline answered all 200 questions, the agent 107. The comparison below uses
+the 107 questions both answered.
+
+| on the same 107 questions | baseline (search + write) | agent |
+|---|---|---|
+| correct, overall | 64% (68) | **79% (84)** |
+| numbers questions (SQL) | 14 of 39 | **39 of 39** |
+| multi-company questions | 6 of 14 | 9 of 14 |
+| text questions | **33 of 38** | 22 of 38 |
+| unanswerable, correctly declined | 11 of 11 | 11 of 11 |
+| faithfulness (claims supported by the evidence) | 0.99 | 0.99 |
+| access leaks | 0 | 0 |
+
+The agent wins on numbers because it can query the reported financials; the baseline can
+only read prose. It **lost on text**, and the cause was a bug: questions like Apple's headcount
+were planned as numbers-only, the SQL worker found no such fact, nothing was searched, and the
+agent declined. It now searches the filings whenever SQL comes back empty
+([graph.py](src/provenance/agents/graph.py)); the effect on the text questions has not been
+re-measured yet. Reports: [baseline](eval/reports/answers-baseline-20261007-1614.md),
+[agent](eval/reports/answers-agent-20261008-1230.md),
+[controller](eval/reports/answers-controller-20261009-0523.md).
+
+**Calibration is not shipped, because it doesn't earn its badge.** Of 587 judged claims, 99%
+were supported, so a calibrator scores well on calibration error (ECE 0.003) by saying "almost
+always supported", while barely separating good claims from bad (AUROC 0.58; 0.5 is chance)
+([report](eval/reports/calibration-20261012-1354.md)). Answer-level, ranking answers by that
+confidence lifts accuracy from 88% to 91% at 80% coverage, but it predicts 99% accuracy for
+answers that are 88% correct ([report](eval/reports/selective-agent-20261012-1413.md)): claim
+support isn't answer correctness (an answer can be faithful and still incomplete). A "99%"
+badge would overstate, and scoring adds seconds of CPU per answer, so the API runs without a
+calibrator until there are enough unsupported claims to learn from. The human audit of 100
+claims will show whether the judge is too lenient.
+
+**Cost: no measurable saving from routing on free tiers.** On 104 shared questions the
+controller cost 0.96 of the always-large agent (0.94 counting cache hits) at the same accuracy
+(79% vs 78%) ([report](eval/reports/cost-ab-20261012-1339.md)). The comparison is confounded:
+the free-tier large model was unavailable for 78% of the agent's answers, which then fell back
+to the small one, so both arms mostly ran the same model. The cache answered 11 of 20
+reworded questions, 75% of them correctly.
+
+The answer-quality gate ([eval/answer_gate.py](eval/answer_gate.py)) re-asks 25 fixed
+questions in CI and fails if correctness, faithfulness or refusals drop below the recorded
+floors.
 
 ## Quickstart
 

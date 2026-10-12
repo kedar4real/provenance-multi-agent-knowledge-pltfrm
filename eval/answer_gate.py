@@ -93,6 +93,7 @@ def main(do_record: bool) -> int:
             "# own commit; never edit the floors to make a run pass.\n"
             + yaml.safe_dump(baseline.model_dump(), sort_keys=False),
             encoding="utf-8",
+            newline="\n",
         )
         print(f"recorded {len(baseline.cases)} cases from {baseline.source}: {baseline.measured}")
         return 0
