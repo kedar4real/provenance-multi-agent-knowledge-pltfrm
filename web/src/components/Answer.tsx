@@ -83,8 +83,18 @@ export function AnswerView({
         <div>
           <p className="font-display text-2xl">No answer from the evidence.</p>
           <p className="mt-1 text-sm text-ink-2">
-            Nothing {identity.displayName.split(" ")[0]} can see answers this. It may be in filings outside their
-            access, or in no filing at all.
+            {identity.groups.includes("research_all") ? (
+              <>Nothing in the filings answers this.</>
+            ) : (
+              <>
+                Nothing {identity.displayName.split(" ")[0]} can see answers this. It may be in filings outside their
+                access, or in no filing at all.
+              </>
+            )}
+          </p>
+          <p className="mt-1 text-sm text-ink-3">
+            The library holds annual 10-K reports, so it has full-year figures only: no quarterly results, share
+            prices or news.
           </p>
         </div>
       </div>

@@ -1,5 +1,5 @@
-import { Check, CircleAlert, LoaderCircle, Timer, Workflow, Zap } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Check, ChevronDown, CircleAlert, LoaderCircle, Timer, Workflow, Zap } from "lucide-react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 import type { TraceEvent } from "../lib/api";
 import { cn } from "../lib/cn";
@@ -35,28 +35,64 @@ export function StepTimeline({
   startedAt: number | null;
   elapsedMs: number | null;
 }) {
+  const listId = useId();
+  // Open while it works; folds away once the answer is in, and the header toggles it.
+  const [open, setOpen] = useState(running);
+  const [wasRunning, setWasRunning] = useState(running);
+  if (running !== wasRunning) {
+    setWasRunning(running);
+    setOpen(running);
+  }
   return (
     <section
       aria-label="Agent steps"
       aria-live="polite"
       className="relative overflow-hidden rounded-2xl border border-rule bg-sheet shadow-card"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-rule px-4 py-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-inset/60",
+          open && "border-b border-rule",
+        )}
+      >
         <span className="flex items-center gap-2 text-sm font-medium">
           <Workflow aria-hidden className="size-4 text-ink-3" />
           {running ? "Working on it" : "How it was answered"}
+          {!open && steps.length > 0 && (
+            <span className="font-normal text-ink-3">
+              · {steps.length} step{steps.length === 1 ? "" : "s"}
+            </span>
+          )}
         </span>
-        <span className="flex items-center gap-1.5 font-mono text-[12px] text-ink-3 tabular-nums">
-          <Timer aria-hidden className="size-3.5" />
-          {running && startedAt !== null ? <Elapsed since={startedAt} /> : elapsedMs !== null ? formatMs(elapsedMs) : "–"}
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 font-mono text-[12px] text-ink-3 tabular-nums">
+            <Timer aria-hidden className="size-3.5" />
+            {running && startedAt !== null ? <Elapsed since={startedAt} /> : elapsedMs !== null ? formatMs(elapsedMs) : "–"}
+          </span>
+          <ChevronDown
+            aria-hidden
+            className={cn("size-4 text-ink-3 transition-transform duration-200", open && "rotate-180")}
+          />
+          <span className="sr-only">{open ? "Hide steps" : "Show steps"}</span>
         </span>
-      </header>
+      </button>
       {running && (
         <div aria-hidden className="absolute inset-x-0 top-0 h-0.5 overflow-hidden">
           <div className="h-full w-1/3 animate-sweep bg-gradient-to-r from-transparent via-pencil to-transparent" />
         </div>
       )}
-      <ol className="px-4 py-1">
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-300 ease-out",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+      <div className="overflow-hidden">
+      <ol id={listId} className="px-4 py-1">
         {steps.map((step, i) => (
           <li key={i} className="relative grid animate-rise grid-cols-[2rem_1fr] gap-x-3 py-2.5 text-sm" style={{ animationDuration: "380ms" }}>
             {i < steps.length - 1 + (running ? 1 : 0) && (
@@ -85,6 +121,8 @@ export function StepTimeline({
           </li>
         )}
       </ol>
+      </div>
+      </div>
     </section>
   );
 }
