@@ -158,8 +158,14 @@ The agent wins on numbers because it can query the reported financials; the base
 only read prose. It **lost on text**, and the cause was a bug: questions like Apple's headcount
 were planned as numbers-only, the SQL worker found no such fact, nothing was searched, and the
 agent declined. It now searches the filings whenever SQL comes back empty
-([graph.py](src/provenance/agents/graph.py)); the effect on the text questions has not been
-re-measured yet. Reports: [baseline](eval/reports/answers-baseline-20261007-1614.md),
+([graph.py](src/provenance/agents/graph.py)). Re-run on the text questions, the same 38 went from
+22 to **28 correct** (declines 8 to 1, faithfulness 0.997); on all 79 text questions the re-run
+answered, 68 correct vs the baseline's 72. The baseline still leads on text. Of the gap: one
+question came back from SQL as a row with an empty value, which the fallback now also treats as
+nothing found (not re-measured, one question); one summed the yearly R&D figures for "R&D since
+inception" ($72.1B) where the filing states the total ($76.7B), a planning error the fallback
+can't catch; the rest are partial lists judged incomplete
+([re-run](eval/reports/answers-textonly-agent-20261012-1709.md)). Reports: [baseline](eval/reports/answers-baseline-20261007-1614.md),
 [agent](eval/reports/answers-agent-20261008-1230.md),
 [controller](eval/reports/answers-controller-20261009-0523.md).
 
