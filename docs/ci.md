@@ -1,14 +1,15 @@
 # CI and the retrieval gate
 
-Two workflows in `.github/workflows/`:
+Three workflows in `.github/workflows/`:
 
 | workflow | runs on | what it checks |
 |---|---|---|
 | `ci.yml` | every push to main and every PR | gitleaks over the full history; ruff, ruff format, mypy; unit tests (including mcpgate against its malicious fixture server); integration tests on real ParadeDB and Redis from `docker-compose.yml`; the web build; that `mcpgate` installs and runs on its own |
 | `eval-gate.yml` | PRs touching retrieval, ingestion, security, the database, or `eval/` | the retrieval regression gate below |
+| `answer-gate.yml` | PRs touching the agents, models, SQL, verifier, controller or their configs | the answer-quality gate below (skips without model keys) |
 
-Both are free: GitHub Actions on a private repo includes 2,000 minutes a month. The gate
-needs no API keys and makes no model calls.
+All are free: GitHub Actions on a private repo includes 2,000 minutes a month. The retrieval
+gate needs no API keys and makes no model calls; the answer gate calls free-tier models.
 
 ## What the gate checks
 
@@ -32,7 +33,8 @@ uv run python -m eval.gate --record
 
 ## One-time setup (owner)
 
-1. **Push the repo** (it's private): `git push -u origin main`.
+1. **Push the repo** (it's private): `git push -u origin main`. Add `GEMINI_API_KEY` and
+   `GROQ_API_KEY` as repository secrets for the answer gate.
 2. **Upload the search index.** CI can't re-ingest from EDGAR, so it restores a dump of the
    documents, chunks, embeddings and financial facts (about 26 MB; SEC filings plus the demo's
    synthetic internal notes; no secrets):
@@ -45,7 +47,7 @@ uv run python -m eval.gate --record
    workflow) whenever ingestion, chunking or the embedding model changes. If the repo is made
    public, the release is public too; its contents are SEC filings and synthetic notes.
 3. **Require the checks.** In the repo's Settings, Branches, add a rule for `main` that
-   requires the `ci` jobs and `retrieval gate` before merging.
+   requires the `ci` jobs, `retrieval gate` and `answer gate` before merging.
 4. **See it fail.** Open a throwaway PR that weakens retrieval (for example, shrink
    `RERANK_POOL` in `src/provenance/retrieval/hybrid.py` to 3). `retrieval gate` should go
    red with a table naming the metrics that dropped. Close it without merging.
@@ -60,11 +62,18 @@ uv run python -m eval.gate
 The gate prints the same table the job summary shows. It uses whatever database your `.env`
 points at (your full ingest), so numbers can differ slightly from CI's restored index.
 
-## Not in the gate (yet)
+## The answer-quality gate
 
-An answer-quality (faithfulness) gate over a 25-question subset needs a Groq key as a
-repository secret and a baseline measured from the agent eval; it will be added once that
-eval has run. Until then answer quality is measured, not gated.
+`eval/answer_gate.py` re-asks 25 fixed golden questions (five per category, from the agent
+eval) through the real agent and the LLM judge, and fails if correctness, faithfulness or
+correct refusals drop below the floors in `eval/answer_thresholds.yaml`, or on any leak. The
+floors are wider than the retrieval gate's (a few questions' worth) because model answers
+vary run to run. If free-tier quota leaves fewer than 20 questions answered, the run is
+inconclusive: a warning, not a failure.
+
+It needs `GEMINI_API_KEY` and `GROQ_API_KEY` as repository secrets (Settings, Secrets and
+variables, Actions); without them the job skips. Run it locally with
+`uv run python -m eval.answer_gate`.
 
 ## Verified locally
 
