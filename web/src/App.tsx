@@ -63,7 +63,7 @@ export default function App() {
               </span>
             </span>
             <span className="smallcaps hidden text-ink-3 md:inline">
-              Form 10-K · 30 issuers · 60 filings · every figure traced
+              S&amp;P 500 annual reports (10-K filings)
             </span>
           </div>
           <IdentityMenu />
@@ -72,7 +72,7 @@ export default function App() {
       {active ? (
         <Workspace key={active.name} identity={active} />
       ) : (
-        <main className="ledger-margin mx-auto min-h-[calc(100dvh-3.5rem)] w-full max-w-3xl px-4 py-8 sm:px-8">
+        <main className="mx-auto min-h-[calc(100dvh-3.5rem)] w-full max-w-3xl px-4 py-8 sm:px-8">
           <Welcome />
         </main>
       )}
@@ -194,7 +194,7 @@ function Workspace({ identity }: { identity: Identity }) {
         }
       >
         <main
-          className={`ledger-margin mx-auto min-h-[calc(100dvh-3.5rem)] w-full px-4 py-6 sm:px-8 ${wideTab ? "max-w-6xl" : "max-w-3xl"}`}
+          className={`mx-auto min-h-[calc(100dvh-3.5rem)] w-full px-4 py-6 sm:px-8 ${wideTab ? "max-w-6xl" : "max-w-3xl"}`}
         >
           <Tabs.Root value={tab} onValueChange={(v) => setTab(v as Tab)}>
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">

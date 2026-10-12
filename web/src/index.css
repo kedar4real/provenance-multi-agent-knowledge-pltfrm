@@ -247,26 +247,6 @@
   }
 }
 
-/* The ledger's double red margin rule, down the left of the working column. */
-@utility ledger-margin {
-  position: relative;
-  &::before {
-    content: "";
-    position: absolute;
-    inset-block: 0;
-    left: 0.5rem;
-    width: 4px;
-    border-inline: 1px solid var(--color-pencil);
-    opacity: 0.4;
-    pointer-events: none;
-  }
-  @media (width < 48rem) {
-    &::before {
-      display: none;
-    }
-  }
-}
-
 /* Alternate rows tinted, like continuous-feed greenbar paper. */
 @utility greenbar {
   & tbody tr:nth-child(even) {
