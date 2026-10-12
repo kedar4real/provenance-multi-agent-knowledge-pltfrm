@@ -269,3 +269,28 @@ async def test_the_answer_streams_as_it_is_written_and_a_revision_starts_over() 
     assert isinstance(items[-1], AgentResult)
     # The plan is JSON and never streams; only the writer's text does.
     assert deltas[0].step == "write"
+
+
+async def test_a_numbers_only_plan_falls_back_to_the_filings_when_sql_finds_nothing() -> None:
+    # Headcounts and contractual obligations are numbers that live in the prose, not in XBRL
+    # facts: a plan that sends them only to SQL must not end in "insufficient evidence".
+    llm = ScriptedLLM(NUMBERS_PLAN, "Net interest income was $95.4 billion [P1].")
+    searcher = FakeSearcher([PASSAGE])
+
+    result, events = await run(llm, searcher, FakeSql([]), "How did NII change?")
+
+    assert [e.step for e in events] == ["plan", "sql", "search", "write", "verify"]
+    assert searcher.queries == ["How did NII change?"]
+    assert not result.declined and result.verification is not None and result.verification.ok
+    search = next(e for e in events if e.step == "search")
+    assert search.detail["fallback"] == "sql_found_nothing"
+
+
+async def test_sql_rows_mean_no_extra_search_for_a_numbers_only_plan() -> None:
+    llm = ScriptedLLM(NUMBERS_PLAN, "It was $95.44 billion [F1].")
+    searcher = FakeSearcher([PASSAGE])
+
+    _, events = await run(llm, searcher, FakeSql([["JPM", 2025, 95443000000.0]]), "NII?")
+
+    assert [e.step for e in events] == ["plan", "sql", "write", "verify"]
+    assert searcher.queries == []

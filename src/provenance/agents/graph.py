@@ -193,11 +193,13 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
             result = await deps.searcher.search(conn, state["question"], k=PASSAGES, rewrite=False)
         # Suspected injections never reach the writer; they're reported instead.
         kept, withheld = quarantine(result.hits)
-        detail = {
+        detail: dict[str, Any] = {
             "passages": len(kept),
             "top": [h.ticker for h in kept[:3]],
             "withheld": [w.model_dump() for w in withheld],
         }
+        if not state["plan"].needs_text:
+            detail["fallback"] = "sql_found_nothing"
         await audit(state, "search", state["question"], "ok", detail)
         return {
             "passages": kept,
@@ -218,6 +220,15 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
             "steps": state.get("steps", 0) + result.attempts,
             "trace": [_event("sql", started, detail)],
         }
+
+    def after_sql(state: State) -> str:
+        # Headcounts, contractual obligations and the like are numbers that live in the
+        # filings' prose, not in the XBRL facts: when a numbers-only plan finds no rows, read
+        # the filings before giving up. (Found in the agent eval: text questions routed to SQL
+        # alone came back empty and were declined.)
+        sql_result = state.get("sql")
+        found_nothing = sql_result is None or not sql_result.rows
+        return "search" if found_nothing and not state["plan"].needs_text else "write"
 
     async def write(state: State) -> dict[str, Any]:
         previous = state.get("verification")
@@ -322,7 +333,7 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
         graph.add_edge(START, "plan")
     graph.add_conditional_edges("plan", route, ["search", "sql"])
     graph.add_edge("search", "write")
-    graph.add_edge("sql", "write")
+    graph.add_conditional_edges("sql", after_sql, ["search", "write"])
     graph.add_edge("write", "verify")
     graph.add_conditional_edges("verify", after_check, ["write", "score"])
     graph.add_edge("score", END)
