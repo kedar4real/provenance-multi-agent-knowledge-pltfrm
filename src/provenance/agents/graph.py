@@ -225,9 +225,11 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
         # Headcounts, contractual obligations and the like are numbers that live in the
         # filings' prose, not in the XBRL facts: when a numbers-only plan finds no rows, read
         # the filings before giving up. (Found in the agent eval: text questions routed to SQL
-        # alone came back empty and were declined.)
+        # alone came back empty and were declined.) A row with a NULL in it is a fact that
+        # isn't there (the re-run's Apple headcount came back as one NULL row), so only rows
+        # with every value present count as found.
         sql_result = state.get("sql")
-        found_nothing = sql_result is None or not sql_result.rows
+        found_nothing = sql_result is None or all(None in row for row in sql_result.rows)
         return "search" if found_nothing and not state["plan"].needs_text else "write"
 
     async def write(state: State) -> dict[str, Any]:

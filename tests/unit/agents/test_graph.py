@@ -286,6 +286,18 @@ async def test_a_numbers_only_plan_falls_back_to_the_filings_when_sql_finds_noth
     assert search.detail["fallback"] == "sql_found_nothing"
 
 
+async def test_rows_without_values_count_as_nothing_found() -> None:
+    # Found in the re-run: the SQL came back as one row whose value was NULL (no such fact),
+    # which is no more an answer than zero rows.
+    llm = ScriptedLLM(NUMBERS_PLAN, "Net interest income was $95.4 billion [P1].")
+    searcher = FakeSearcher([PASSAGE])
+
+    result, events = await run(llm, searcher, FakeSql([["AAPL", "employees", None]]), "Headcount?")
+
+    assert [e.step for e in events] == ["plan", "sql", "search", "write", "verify"]
+    assert not result.declined
+
+
 async def test_sql_rows_mean_no_extra_search_for_a_numbers_only_plan() -> None:
     llm = ScriptedLLM(NUMBERS_PLAN, "It was $95.44 billion [F1].")
     searcher = FakeSearcher([PASSAGE])
