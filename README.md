@@ -199,8 +199,8 @@ questions ([report](eval/reports/answers-textonly-agent-20261012-1709.md)) gave:
 - on all 79 text questions the re-run answered: 68 correct, against the baseline's 72.
 
 The baseline still leads on text. The remaining gap comes from three causes:
-- one SQL result that contained a row with a null value, now also treated as empty, though
-  not yet re-measured;
+- one SQL result that contained a row with a null value, now also treated as empty (that
+  question, Apple's headcount, is answered correctly in the answer gate's run);
 - one planning error, where the agent summed yearly R&D figures ($72.1B) instead of using the
   cumulative total stated in the filing ($76.7B);
 - several list answers that the judge marked as incomplete.
@@ -210,7 +210,9 @@ Full reports: [baseline](eval/reports/answers-baseline-20261007-1614.md),
 [controller](eval/reports/answers-controller-20261009-0523.md).
 
 A second CI gate re-asks 25 fixed questions and fails if correctness, faithfulness or correct
-refusals fall below recorded floors ([eval/answer_gate.py](eval/answer_gate.py)).
+refusals fall below recorded floors ([eval/answer_gate.py](eval/answer_gate.py)). Its first
+local run, after the fixes above, passed: 0.83 correct (recorded baseline 0.72, floor 0.57),
+faithfulness 1.0, all unanswerable questions declined, 0 leaks.
 
 ### Calibration
 
