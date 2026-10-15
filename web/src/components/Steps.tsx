@@ -91,7 +91,7 @@ export function StepTimeline({
           open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         )}
       >
-      <div className="overflow-hidden">
+      <div className="min-h-0 overflow-hidden">
       <ol id={listId} className="px-4 py-1">
         {steps.map((step, i) => (
           <li key={i} className="relative grid animate-rise grid-cols-[2rem_1fr] gap-x-3 py-2.5 text-sm" style={{ animationDuration: "380ms" }}>
