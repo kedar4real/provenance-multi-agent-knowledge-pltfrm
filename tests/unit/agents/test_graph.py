@@ -286,6 +286,19 @@ async def test_a_numbers_only_plan_falls_back_to_the_filings_when_sql_finds_noth
     assert search.detail["fallback"] == "sql_found_nothing"
 
 
+async def test_full_width_citation_brackets_are_read_as_citations() -> None:
+    # Seen while recording the demo: the large model wrote its citations in full-width
+    # brackets, the verifier found none, and a correct answer was marked unverified.
+    llm = ScriptedLLM(
+        TEXT_PLAN, "It was $95.4 billion \u3010P1\u3011 and $95.4 billion \uff3bP1\uff3d."
+    )
+
+    result, _ = await run(llm, FakeSearcher([PASSAGE]), FakeSql([]), "NII?")
+
+    assert result.answer == "It was $95.4 billion [P1] and $95.4 billion [P1]."
+    assert result.verification is not None and result.verification.ok
+
+
 async def test_rows_without_values_count_as_nothing_found() -> None:
     # Found in the re-run: the SQL came back as one row whose value was NULL (no such fact),
     # which is no more an answer than zero rows.

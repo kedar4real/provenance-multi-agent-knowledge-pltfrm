@@ -37,6 +37,7 @@ from provenance.security.injection import heuristic_hits
 from provenance.security.isolation import Withheld, quarantine
 from provenance.security.pii import redact
 from provenance.sql.worker import SqlResult
+from provenance.verifier.numbers import normalize_citations
 from provenance.verifier.scorer import ClaimScorer, ScoredClaim
 
 PLAN_ROLE, WRITE_ROLE = "serve_small", "serve_large"
@@ -264,7 +265,9 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
             try:
                 for role in roles:
                     try:
-                        answer = (await deps.llm.complete(role, request)).content.strip()
+                        answer = normalize_citations(
+                            (await deps.llm.complete(role, request)).content.strip()
+                        )
                         break
                     except AllProvidersFailed:
                         if role == roles[-1]:
