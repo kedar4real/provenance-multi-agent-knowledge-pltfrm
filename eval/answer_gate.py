@@ -104,6 +104,8 @@ def main(do_record: bool) -> int:
         for c in (GoldenCase.model_validate_json(x) for x in CASES.read_text("utf-8").splitlines())
     }
     cases = [by_id[i] for i in baseline.cases if i in by_id]
+    if sys.platform == "win32":  # psycopg's async mode needs the selector loop
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     rows = asyncio.run(evaluate(cases, "agent"))
     judged = [r for r in rows if r.get("correct") is not None]
     current = metrics(judged)
