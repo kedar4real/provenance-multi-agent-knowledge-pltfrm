@@ -115,7 +115,7 @@ def main(key: dict[str, str]) -> None:
         region(
             page,
             page.locator("#compare-question"),
-            sections.first.locator("article header").first,
+            sections.nth(1).get_by_text("The library holds"),  # the end of the "no answer" note
             "compare.png",
             pad=60,
         )
