@@ -66,6 +66,10 @@ def main(rescan: bool) -> int:
     scanner = InjectionScanner(InjectionClassifier())
     with psycopg.connect(Settings().owner_dsn) as conn:
         scanned, flagged = scan_unscanned(conn, scanner, rescan)
+        # The scan rewrites every row; vacuum so the BM25 index doesn't keep the dead versions.
+        # (After the first scan, filtered BM25 queries crashed until a vacuum; see migration 0004.)
+        conn.autocommit = True
+        conn.execute("VACUUM chunks")
     print(f"done: {scanned} chunks scanned, {flagged} flagged")
     return 0
 

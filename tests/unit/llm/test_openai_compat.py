@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx2
@@ -5,6 +6,7 @@ import pytest
 
 from provenance.llm.errors import ProviderRejected, ProviderUnavailable, RateLimited
 from provenance.llm.openai_compat import OpenAICompatProvider
+from provenance.llm.streaming import token_sink
 from provenance.llm.types import ChatRequest, Message
 
 BASE = "https://llm.test/v1"
@@ -181,3 +183,64 @@ async def test_sends_reasoning_effort_only_when_set(
     with_effort, without = (r.content.replace(b" ", b"") for r in http.requests[-2:])
     assert b'"reasoning_effort":"low"' in with_effort
     assert b"reasoning_effort" not in without
+
+
+def stream_body(*deltas: str) -> bytes:
+    chunks = [
+        {"id": "c1", "object": "chat.completion.chunk", "created": 0, "model": "m1",
+         "choices": [{"index": 0, "delta": {"content": d}, "finish_reason": None}]}
+        for d in deltas
+    ]  # fmt: skip
+    chunks.append(
+        {"id": "c1", "object": "chat.completion.chunk", "created": 0, "model": "m1", "choices": [],
+         "usage": {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13}}
+    )  # fmt: skip
+    lines = [f"data: {json.dumps(c)}\n\n" for c in chunks] + ["data: [DONE]\n\n"]
+    return "".join(lines).encode()
+
+
+class Sink:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def reset(self) -> None:
+        self.events.append("<reset>")
+
+    def delta(self, text: str) -> None:
+        self.events.append(text)
+
+
+async def test_streams_text_to_the_token_sink_and_still_returns_the_whole_answer(
+    provider: OpenAICompatProvider, http: FakeServer
+) -> None:
+    http.response = httpx2.Response(
+        200, content=stream_body("Net ", "income ", "rose."),
+        headers={"content-type": "text/event-stream"},
+    )  # fmt: skip
+    sink = Sink()
+    token = token_sink.set(sink)
+    try:
+        resp = await provider.complete(REQ, model="m1")
+    finally:
+        token_sink.reset(token)
+
+    assert sink.events == ["<reset>", "Net ", "income ", "rose."]
+    assert resp.content == "Net income rose."
+    assert (resp.usage.input_tokens, resp.usage.output_tokens) == (9, 4)
+    sent = json.loads(http.requests[0].content)
+    assert sent["stream"] is True and sent["stream_options"] == {"include_usage": True}
+
+
+async def test_structured_requests_never_stream_even_with_a_sink(
+    provider: OpenAICompatProvider, http: FakeServer
+) -> None:
+    http.respond(200, json=completion({"role": "assistant", "content": "{}"}))
+    sink = Sink()
+    token = token_sink.set(sink)
+    try:
+        await provider.complete(REQ.model_copy(update={"json_mode": True}), model="m1")
+    finally:
+        token_sink.reset(token)
+
+    assert sink.events == []
+    assert "stream" not in json.loads(http.requests[0].content)

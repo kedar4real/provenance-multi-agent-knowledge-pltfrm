@@ -5,8 +5,8 @@ import { cn } from "../lib/cn";
 type Variant = "primary" | "ghost" | "outline";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-ink text-paper hover:bg-ink-2",
-  outline: "border border-rule bg-sheet text-ink hover:border-rule-strong",
+  primary: "bg-ink text-paper shadow-card hover:-translate-y-px hover:bg-ink-2 hover:shadow-lift",
+  outline: "border border-rule bg-sheet text-ink shadow-card hover:-translate-y-px hover:border-rule-strong",
   ghost: "text-ink-2 hover:bg-inset hover:text-ink",
 };
 
@@ -17,7 +17,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLBut
         ref={ref}
         type={type}
         className={cn(
-          "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-sm font-medium transition-[background-color,border-color,transform] duration-100 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
+          "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-[background-color,border-color,box-shadow,transform] duration-100 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
           variants[variant],
           className,
         )}
@@ -31,7 +31,7 @@ export function Chip({ children, className }: { children: React.ReactNode; class
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded border border-rule px-1.5 py-px font-mono text-[12px] leading-5 text-ink-2",
+        "inline-flex items-center rounded-sm border border-rule-strong px-1.5 py-px font-mono text-[12px] leading-5 text-ink-2",
         className,
       )}
     >

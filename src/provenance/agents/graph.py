@@ -14,13 +14,22 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Protocol, TypedDict
 
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from psycopg import AsyncConnection
 
-from provenance.agents.types import AgentResult, Evidence, Plan, TraceEvent, Verification
+from provenance.agents.types import (
+    AgentResult,
+    AnswerDelta,
+    Evidence,
+    Plan,
+    TraceEvent,
+    Verification,
+)
 from provenance.agents.verify import DECLINE, verify
 from provenance.llm.errors import AllProvidersFailed
 from provenance.llm.metering import current_node
+from provenance.llm.streaming import token_sink
 from provenance.llm.types import ChatRequest, ChatResponse, Message
 from provenance.retrieval.types import Hit, SearchResult
 from provenance.security.audit import AuditEntry, AuditSink
@@ -28,6 +37,7 @@ from provenance.security.injection import heuristic_hits
 from provenance.security.isolation import Withheld, quarantine
 from provenance.security.pii import redact
 from provenance.sql.worker import SqlResult
+from provenance.verifier.numbers import normalize_citations
 from provenance.verifier.scorer import ClaimScorer, ScoredClaim
 
 PLAN_ROLE, WRITE_ROLE = "serve_small", "serve_large"
@@ -184,11 +194,13 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
             result = await deps.searcher.search(conn, state["question"], k=PASSAGES, rewrite=False)
         # Suspected injections never reach the writer; they're reported instead.
         kept, withheld = quarantine(result.hits)
-        detail = {
+        detail: dict[str, Any] = {
             "passages": len(kept),
             "top": [h.ticker for h in kept[:3]],
             "withheld": [w.model_dump() for w in withheld],
         }
+        if not state["plan"].needs_text:
+            detail["fallback"] = "sql_found_nothing"
         await audit(state, "search", state["question"], "ok", detail)
         return {
             "passages": kept,
@@ -210,9 +222,21 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
             "trace": [_event("sql", started, detail)],
         }
 
+    def after_sql(state: State) -> str:
+        # Headcounts, contractual obligations and the like are numbers that live in the
+        # filings' prose, not in the XBRL facts: when a numbers-only plan finds no rows, read
+        # the filings before giving up. (Found in the agent eval: text questions routed to SQL
+        # alone came back empty and were declined.) A row with a NULL in it is a fact that
+        # isn't there (the re-run's Apple headcount came back as one NULL row), so only rows
+        # with every value present count as found.
+        sql_result = state.get("sql")
+        found_nothing = sql_result is None or all(None in row for row in sql_result.rows)
+        return "search" if found_nothing and not state["plan"].needs_text else "write"
+
     async def write(state: State) -> dict[str, Any]:
         previous = state.get("verification")
-        current_node.set("revise" if previous and not previous.ok else "write")
+        step = "revise" if previous and not previous.ok else "write"
+        current_node.set(step)
         started = time.perf_counter()
         evidence = state.get("evidence") or _evidence(state.get("passages", []), state.get("sql"))
         prompt = f"Question: {state['question']}\n\nEvidence:\n" + "\n\n".join(
@@ -235,13 +259,21 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
             )
             # Free tiers run out: when the large model is unavailable, answer with the small
             # one and say so in the trace rather than fail the question.
-            for role in roles:
-                try:
-                    answer = (await deps.llm.complete(role, request)).content.strip()
-                    break
-                except AllProvidersFailed:
-                    if role == roles[-1]:
-                        raise
+            # The answer streams to the client as it is written (unverified until the
+            # result arrives); see provenance.llm.streaming.
+            sink = token_sink.set(_StreamSink(step))
+            try:
+                for role in roles:
+                    try:
+                        answer = normalize_citations(
+                            (await deps.llm.complete(role, request)).content.strip()
+                        )
+                        break
+                    except AllProvidersFailed:
+                        if role == roles[-1]:
+                            raise
+            finally:
+                token_sink.reset(sink)
         revising = previous is not None and not previous.ok
         return {
             "evidence": evidence,
@@ -306,7 +338,7 @@ def build_graph(deps: AgentDeps, entry: Literal["plan", "write"] = "plan") -> An
         graph.add_edge(START, "plan")
     graph.add_conditional_edges("plan", route, ["search", "sql"])
     graph.add_edge("search", "write")
-    graph.add_edge("sql", "write")
+    graph.add_conditional_edges("sql", after_sql, ["search", "write"])
     graph.add_edge("write", "verify")
     graph.add_conditional_edges("verify", after_check, ["write", "score"])
     graph.add_edge("score", END)
@@ -319,8 +351,9 @@ async def run_agent(
     groups: list[str],
     tier: str = "large",
     carried: dict[str, Any] | None = None,
-) -> AsyncIterator[TraceEvent | AgentResult]:
-    """Yields each step as it finishes, then the final result. `carried` seeds the state
+) -> AsyncIterator[TraceEvent | AnswerDelta | AgentResult]:
+    """Yields each step as it finishes (and the answer's text as it is written), then the
+    final result. `carried` seeds the state
     (plan, passages, SQL result...) when the graph starts at the writer."""
     # Redacted before the question reaches any model or log.
     state: State = {
@@ -331,7 +364,11 @@ async def run_agent(
         "trace": [],
     }
     final: dict[str, Any] = dict(state)
-    async for update in graph.astream(state, stream_mode="updates"):
+    async for mode, update in graph.astream(state, stream_mode=["updates", "custom"]):
+        if mode == "custom":
+            if isinstance(update, AnswerDelta):
+                yield update
+            continue
         for node_output in update.values():
             for event in node_output.get("trace", []):
                 yield event
@@ -356,6 +393,20 @@ async def run_agent(
         confidence=final.get("confidence"),
         tier=tier,
     )
+
+
+class _StreamSink:
+    """Forwards the writer's tokens to the graph's custom stream."""
+
+    def __init__(self, step: str) -> None:
+        self.step = step
+        self.write = get_stream_writer()
+
+    def reset(self) -> None:
+        self.write(AnswerDelta(step=self.step, reset=True))
+
+    def delta(self, text: str) -> None:
+        self.write(AnswerDelta(step=self.step, text=text))
 
 
 def _evidence(passages: list[Hit], sql: SqlResult | None) -> list[Evidence]:

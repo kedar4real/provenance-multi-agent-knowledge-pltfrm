@@ -286,3 +286,38 @@ Every non-obvious choice: what was picked, what was rejected, and why. Newest en
 
 - **The trace panel shows measured numbers only:** per step the time, the provider/model that ran, tokens in/out and API-equivalent cost, with totals and the browser-measured wall-clock time. Step times overlap (search and SQL run in parallel), which the panel says; model calls are listed once, on the first step of their node, so a revision's calls don't repeat the write step's.
 - **The demo is recorded, not staged.** `scripts/demo_gif.py` drives the real UI against the running API with temporary keys (revoked afterwards): a cited answer with live steps, the highlighted source, the user switcher, and the same question from an analyst who can't see the filing. Screenshots are stitched with ffmpeg instead of using Playwright's video recorder (which needs a separate download); idle waits are capped at one second per frame, so the GIF is shorter than the ~48 s run.
+
+## CI and the retrieval gate (M11)
+
+### A gate that needs no keys and no model calls
+- It runs hybrid search + rerank (config c) over every golden case and fails on any metric below its floor, any access-control leak, or fewer gold-passage cases than the baseline. Deterministic, so it can run on every PR; answer quality needs an LLM judge and quota, so it stays manual until a baseline from the agent eval exists (then a 25-case subset with a tolerance band).
+- **Floors are recorded, not chosen:** `python -m eval.gate --record` writes the measurement and measurement minus 0.03 (about four questions of Recall@1). Re-recording happens in its own commit when the golden set or pipeline legitimately changes, so a reviewer sees the baseline move. Never to make a failing PR pass.
+- **The index travels as a dump, not an ingest.** CI can't re-ingest from EDGAR (rate limits, a long CPU embedding run). `scripts/index_dump.py` wraps pg_dump/pg_restore inside the compose container (no host client tools; a custom-format dump of five tables, 26 MB) and the workflow downloads it from a release asset. No secrets are in it (`app_secrets` and `audit_log` are excluded; the signing key comes from the environment).
+- **HNSW is approximate:** an index rebuilt from the dump returned Recall@1 0.792 vs 0.800 on the original (one question in 130). The recorded baseline comes from a restored copy, the path CI takes, and the tolerance absorbs this.
+- The gate workflow is path-filtered (retrieval, ingestion, security, database, eval) because a full run took about 15 minutes on a loaded laptop CPU (883 s), and a private repo has 2,000 free Actions minutes a month.
+
+### CI choices
+- Integration tests use the repo's own `docker-compose.yml` (real ParadeDB and Redis 8), so CI runs the stack developers run. gitleaks scans the full history. `mcpgate` is built as a wheel and run in an environment without provenance, which proves the "installable alone" claim.
+- **PyTorch's CPU index on Linux only.** The lockfile held 43 NVIDIA packages (about 3 GB) for models that run on CPU. torch became a direct dependency so a Linux-only index source applies; Windows still resolves from PyPI and its torch version didn't change.
+- **Deferred:** the faithfulness gate (needs a baseline and a Groq key as a repository secret).
+
+## Streaming, dashboard, audit view and charts
+
+### Answer streaming without a second code path
+- A ContextVar token sink, set by the writer for its call. The OpenAI-compatible provider streams only when a sink is set and the request is free text (never JSON, tools or logprobs), forwards fragments, and still returns one complete ChatResponse. Router failover, metering, cost and the response cache are untouched, and the verifier still checks the whole answer.
+- Every provider attempt starts with `reset`, so a failover, a revision or an escalation replaces what was shown instead of appending to it. The UI labels the streamed text an "unverified draft" until the result arrives.
+- Rejected: a separate `stream()` method on every layer (router, metering, cache) - four layers to keep in sync for the same behaviour.
+
+### Reading the audit log from the app
+- The app role still has INSERT only on audit_log. Auditors read through two owner-run functions that raise unless `'auditor' = ANY(app_groups())`, so the check rests on the HMAC-signed groups, not on the API. The API also returns 403 first, for a clear error. Quarantined passages are read through row-level security like any chunk.
+
+### Charts
+- Hand-rolled SVG (about 400 lines) instead of a chart library: five chart forms, and the bundle stays small (heavy views are lazy-loaded).
+- Colours were computed, not picked: the dataviz validator rejected ledger green next to red pencil (protan dE 5.8) and amber next to red (deutan dE 1.1); the shipped order (green, blue, red pencil, violet) passes every check in light and dark mode, and its first three colours pass all-pairs. Status colours (ok, warning, danger) are separate and always paired with an icon and a label.
+- Every chart has a tooltip and a table view; grouped columns don't label caps (they collided), single series do.
+
+## Results that changed decisions (2026-10-12)
+
+- **The calibrator is not served.** Out-of-fold ECE 0.003 looks excellent, but 99% of the judged claims were supported, so "always say ~0.99" scores that well; AUROC 0.58 shows it can barely rank. At the answer level it predicts 0.99 for answers that are 0.88 correct, because claim support is not answer correctness. Showing that number would mislead, and scoring costs seconds of CPU per answer. The fitted model is kept in `eval/reports/calibrator-*.json`; re-run `eval.calibration_eval` to serve one when the labels have enough negatives (or the human audit says the judge is lenient).
+- **Search when SQL finds nothing.** The paired comparison showed the agent losing text questions to the baseline; the cause was numbers-only plans for figures that live in prose. A conditional edge after SQL now runs the filing search in that case, rather than making the planner prompt cleverer: a structural fallback can't be talked out of.
+- **The cost A/B is reported with its confound** (large model unavailable 78% of the time), not as a routing saving; the ratio is what it is on free tiers.

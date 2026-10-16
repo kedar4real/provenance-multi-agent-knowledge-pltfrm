@@ -16,8 +16,9 @@ from provenance.agents.graph import (
     build_graph,
     run_agent,
 )
-from provenance.agents.types import AgentResult, TraceEvent
+from provenance.agents.types import AgentResult, AnswerDelta, TraceEvent
 from provenance.llm.errors import AllProvidersFailed
+from provenance.llm.streaming import token_sink
 from provenance.llm.types import ChatRequest, ChatResponse, Usage
 from provenance.retrieval.types import Hit, SearchFilters, SearchResult
 from provenance.sql.worker import SqlResult
@@ -95,7 +96,7 @@ async def run(llm: ScriptedLLM, searcher: FakeSearcher, sql: FakeSql, question: 
     async for item in run_agent(build_graph(deps), question, GROUPS):
         if isinstance(item, AgentResult):
             result = item
-        else:
+        elif isinstance(item, TraceEvent):
             events.append(item)
     assert result is not None
     return result, events
@@ -232,10 +233,89 @@ async def test_answers_get_claim_confidence_when_a_scorer_is_configured() -> Non
     async for item in run_agent(build_graph(deps), "NII?", GROUPS):
         if isinstance(item, AgentResult):
             result = item
-        else:
+        elif isinstance(item, TraceEvent):
             events.append(item)
 
     assert result is not None
     assert [round(c.confidence or 0, 2) for c in result.claims] == [0.8]
     assert result.confidence == 0.8
     assert events[-1].step == "score"
+
+
+class StreamingLLM(ScriptedLLM):
+    """Writes its answers word by word into the token sink, as a streaming provider does."""
+
+    async def complete(self, role: str, request: ChatRequest) -> ChatResponse:
+        response = await super().complete(role, request)
+        sink = token_sink.get()
+        if sink is not None and not request.json_mode:
+            sink.reset()
+            for word in response.content.split(" "):
+                sink.delta(word + " ")
+        return response
+
+
+async def test_the_answer_streams_as_it_is_written_and_a_revision_starts_over() -> None:
+    llm = StreamingLLM(TEXT_PLAN, "It was $99 billion [P1].", "It was $95.4 billion [P1].")
+    deps = AgentDeps(llm, FakeSearcher([PASSAGE]), FakeSql([]), no_connection, no_connection)
+
+    items = [item async for item in run_agent(build_graph(deps), "NII?", GROUPS)]
+
+    deltas = [i for i in items if isinstance(i, AnswerDelta)]
+    assert [d.reset for d in deltas].count(True) == 2  # the draft, then the revision
+    after_last_reset = deltas[max(i for i, d in enumerate(deltas) if d.reset) + 1 :]
+    assert "".join(d.text for d in after_last_reset).strip() == "It was $95.4 billion [P1]."
+    assert all(d.step == "revise" for d in after_last_reset)
+    assert isinstance(items[-1], AgentResult)
+    # The plan is JSON and never streams; only the writer's text does.
+    assert deltas[0].step == "write"
+
+
+async def test_a_numbers_only_plan_falls_back_to_the_filings_when_sql_finds_nothing() -> None:
+    # Headcounts and contractual obligations are numbers that live in the prose, not in XBRL
+    # facts: a plan that sends them only to SQL must not end in "insufficient evidence".
+    llm = ScriptedLLM(NUMBERS_PLAN, "Net interest income was $95.4 billion [P1].")
+    searcher = FakeSearcher([PASSAGE])
+
+    result, events = await run(llm, searcher, FakeSql([]), "How did NII change?")
+
+    assert [e.step for e in events] == ["plan", "sql", "search", "write", "verify"]
+    assert searcher.queries == ["How did NII change?"]
+    assert not result.declined and result.verification is not None and result.verification.ok
+    search = next(e for e in events if e.step == "search")
+    assert search.detail["fallback"] == "sql_found_nothing"
+
+
+async def test_full_width_citation_brackets_are_read_as_citations() -> None:
+    # Seen while recording the demo: the large model wrote its citations in full-width
+    # brackets, the verifier found none, and a correct answer was marked unverified.
+    llm = ScriptedLLM(
+        TEXT_PLAN, "It was $95.4 billion \u3010P1\u3011 and $95.4 billion \uff3bP1\uff3d."
+    )
+
+    result, _ = await run(llm, FakeSearcher([PASSAGE]), FakeSql([]), "NII?")
+
+    assert result.answer == "It was $95.4 billion [P1] and $95.4 billion [P1]."
+    assert result.verification is not None and result.verification.ok
+
+
+async def test_rows_without_values_count_as_nothing_found() -> None:
+    # Found in the re-run: the SQL came back as one row whose value was NULL (no such fact),
+    # which is no more an answer than zero rows.
+    llm = ScriptedLLM(NUMBERS_PLAN, "Net interest income was $95.4 billion [P1].")
+    searcher = FakeSearcher([PASSAGE])
+
+    result, events = await run(llm, searcher, FakeSql([["AAPL", "employees", None]]), "Headcount?")
+
+    assert [e.step for e in events] == ["plan", "sql", "search", "write", "verify"]
+    assert not result.declined
+
+
+async def test_sql_rows_mean_no_extra_search_for_a_numbers_only_plan() -> None:
+    llm = ScriptedLLM(NUMBERS_PLAN, "It was $95.44 billion [F1].")
+    searcher = FakeSearcher([PASSAGE])
+
+    _, events = await run(llm, searcher, FakeSql([["JPM", 2025, 95443000000.0]]), "NII?")
+
+    assert [e.step for e in events] == ["plan", "sql", "write", "verify"]
+    assert searcher.queries == []

@@ -17,7 +17,7 @@ from typing import Any
 from opentelemetry.trace import Tracer
 
 from provenance.agents.graph import AgentDeps, build_graph, run_agent
-from provenance.agents.types import AgentResult, ControlReport, TraceEvent
+from provenance.agents.types import AgentResult, AnswerDelta, ControlReport, TraceEvent
 from provenance.agents.verify import DECLINE
 from provenance.controller.backpressure import Gate
 from provenance.controller.budget import BudgetStore
@@ -84,7 +84,7 @@ class Controller:
 
     async def run(
         self, question: str, principal: str, groups: list[str], make_deps: DepsFactory
-    ) -> AsyncIterator[TraceEvent | AgentResult]:
+    ) -> AsyncIterator[TraceEvent | AnswerDelta | AgentResult]:
         """Streams each step as it finishes, then the result; traced as one span per run
         with a child span per step."""
         t = self.tracer or tracer()
@@ -93,7 +93,7 @@ class Controller:
             async for item in self._run(question, principal, groups, make_deps):
                 if isinstance(item, TraceEvent):
                     record_step(t, span, item)
-                elif item.control is not None:
+                elif isinstance(item, AgentResult) and item.control is not None:
                     c = item.control
                     span.set_attribute("provenance.tier", c.tier)
                     span.set_attribute("provenance.cache_hit", bool(c.cache and c.cache.hit))
@@ -110,7 +110,7 @@ class Controller:
 
     async def _run(
         self, question: str, principal: str, groups: list[str], make_deps: DepsFactory
-    ) -> AsyncIterator[TraceEvent | AgentResult]:
+    ) -> AsyncIterator[TraceEvent | AnswerDelta | AgentResult]:
         started = time.perf_counter()
         # Redacted once, up front: the classifier, cache keys and models never see raw PII.
         question = redact(question).text

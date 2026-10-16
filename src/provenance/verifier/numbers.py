@@ -9,6 +9,19 @@ import re
 # "[P1]" or a group "[P1, F2]".
 CITATION = re.compile(r"\[([PF]\d+(?:\s*,\s*[PF]\d+)*)\]")
 DECLINE = "INSUFFICIENT_EVIDENCE"
+# Models sometimes write citations in full-width brackets (U+3010/U+3011 or U+FF3B/U+FF3D).
+_WIDE_CITATION = re.compile(
+    r"[\u3010\uff3b]\s*([PF]\d+(?:\s*[,\uff0c]\s*[PF]\d+)*)\s*[\u3011\uff3d]"
+)
+
+
+def normalize_citations(text: str) -> str:
+    """Rewrite full-width citation brackets as [P1], so every reader of the answer (the
+    verifier, the claim signals, the web app) parses one form."""
+    return _WIDE_CITATION.sub(
+        lambda m: "[" + re.sub(r"\s*[,\uff0c]\s*", ", ", m.group(1)) + "]", text
+    )
+
 
 # A number, optionally with $ and a scale word: "$95.4 billion", "73.6%", "1,234".
 _NUMBER = re.compile(

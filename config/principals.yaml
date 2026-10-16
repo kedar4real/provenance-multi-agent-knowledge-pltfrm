@@ -16,4 +16,4 @@ principals:
     groups: [research_all]
   ivan_internal:
     display_name: Ivan (research + internal notes)
-    groups: [research_all, internal_restricted]
+    groups: [research_all, internal_restricted, auditor]

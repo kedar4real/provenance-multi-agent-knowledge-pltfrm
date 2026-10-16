@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from provenance.api.errors import install_error_handlers
 from provenance.api.lifespan import Completer, Retriever, lifespan
 from provenance.api.middleware import RequestContextMiddleware
-from provenance.api.routers import health, me, metrics, query, search, sources
+from provenance.api.routers import audit, health, me, metrics, query, search, sources, stats
 from provenance.config import Settings
 from provenance.controller.policy import Policy
 from provenance.verifier.scorer import ClaimScorer
@@ -48,4 +48,6 @@ def create_app(
     app.include_router(sources.router)
     app.include_router(query.router)
     app.include_router(metrics.router)
+    app.include_router(stats.router)
+    app.include_router(audit.router)
     return app

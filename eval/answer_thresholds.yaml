@@ -1,0 +1,39 @@
+# Answer-quality gate baseline (eval/answer_gate.py). Re-record deliberately, in its
+# own commit; never edit the floors to make a run pass.
+recorded: '2026-10-12'
+source: answers-agent-20261008-1230.json
+cases:
+- unanswerable-000
+- unanswerable-001
+- unanswerable-002
+- unanswerable-003
+- unanswerable-004
+- adversarial-000
+- adversarial-003
+- adversarial-004
+- adversarial-007
+- adversarial-008
+- sql-031
+- sql-032
+- sql-033
+- sql-034
+- sql-035
+- text-072
+- text-074
+- text-084
+- text-085
+- text-086
+- cross-163
+- cross-164
+- cross-169
+- cross-171
+- cross-174
+measured:
+  correct: 0.722
+  faithfulness: 1.0
+  declines_when_it_should: 1.0
+floors:
+  correct: 0.572
+  faithfulness: 0.95
+  declines_when_it_should: 0.8
+max_leaks: 0

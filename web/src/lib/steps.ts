@@ -1,3 +1,18 @@
+import {
+  ArrowUpRight,
+  DatabaseZap,
+  FileSearch,
+  Gauge,
+  ListChecks,
+  PenLine,
+  RefreshCcw,
+  Route,
+  ShieldAlert,
+  ShieldCheck,
+  Table2,
+  type LucideIcon,
+} from "lucide-react";
+
 /** Names for the steps the controller and agent stream back, shared by the timeline and the
  *  trace panel. */
 export const STEP_LABELS: Record<string, string> = {
@@ -17,3 +32,18 @@ export const STEP_LABELS: Record<string, string> = {
 export function formatMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
 }
+
+/** One icon per step, used by the live timeline. */
+export const STEP_ICONS: Record<string, LucideIcon> = {
+  route: Route,
+  cache: DatabaseZap,
+  plan: ListChecks,
+  search: FileSearch,
+  sql: Table2,
+  write: PenLine,
+  revise: RefreshCcw,
+  verify: ShieldCheck,
+  score: Gauge,
+  escalate: ArrowUpRight,
+  abstain: ShieldAlert,
+};

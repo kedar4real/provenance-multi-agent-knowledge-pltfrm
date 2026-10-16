@@ -1,28 +1,59 @@
+import { ChevronRight, Receipt } from "lucide-react";
+
 import type { AgentResult, LLMCall } from "../lib/api";
+import { timedFromTrace, type TimedStep } from "../lib/useAgentRun";
+import { Waterfall } from "./charts";
 import { STEP_LABELS, formatMs } from "../lib/steps";
 
 /** How the answer was made: each step's time, the model calls it made, their tokens and
  *  API-equivalent cost. Parallel steps (search and SQL) overlap, so step times don't add up
  *  to the total; the total is measured in the browser. */
-export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsedMs: number | null }) {
+export function TracePanel({
+  result,
+  elapsedMs,
+  steps,
+}: {
+  result: AgentResult;
+  elapsedMs: number | null;
+  steps?: TimedStep[];
+}) {
+  const timed = steps && steps.length > 0 ? steps : timedFromTrace(result.trace);
   const calls = result.control?.usage.calls ?? [];
   const byNode = new Map<string, LLMCall[]>();
   for (const call of calls) byNode.set(call.node, [...(byNode.get(call.node) ?? []), call]);
   const usage = result.control?.usage;
 
   return (
-    <details className="rounded-lg border border-rule bg-sheet">
-      <summary className="cursor-pointer px-4 py-3 text-sm text-ink-3 hover:text-ink">
-        How this answer was made
+    <details className="group/trace overflow-hidden rounded-xl border border-rule bg-sheet shadow-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm text-ink-3 hover:text-ink [&::-webkit-details-marker]:hidden">
+        <ChevronRight aria-hidden className="size-4 transition-transform duration-200 group-open/trace:rotate-90" />
+        <Receipt aria-hidden className="size-4 text-ink-4" />
+        <span className="font-medium text-ink-2">Schedule of work</span>
+        <span className="ml-2">how this answer was made</span>
         <span className="ml-2 font-mono text-[12px] text-ink-4 tabular-nums">
           {result.trace.length} steps · {calls.length} model calls
           {elapsedMs !== null && <> · {formatMs(elapsedMs)}</>}
         </span>
       </summary>
+      <div className="border-t border-rule px-4 pt-4 pb-2">
+        <p className="mb-2 text-[12px] text-ink-3">
+          When each step ran{steps && steps.length > 0 ? "" : " (laid end to end: this answer was stored without timings)"}.
+          Searching filings and querying financial data run in parallel.
+        </p>
+        <Waterfall
+          steps={timed}
+          totalMs={elapsedMs ?? timed.at(-1)?.at ?? 0}
+          labelOf={(s) => STEP_LABELS[s] ?? s}
+          isProblem={(i) => {
+            const s = timed[i];
+            return Boolean(s && ((s.step === "verify" && s.detail.ok === false) || s.step === "abstain"));
+          }}
+        />
+      </div>
       <div className="overflow-x-auto border-t border-rule">
-        <table className="w-full text-left text-[13px]">
+        <table className="greenbar w-full text-left text-[13px]">
           <caption className="sr-only">Steps, model calls, tokens and cost for this answer</caption>
-          <thead className="text-ink-4">
+          <thead className="smallcaps text-ink-4">
             <tr className="border-b border-rule">
               <th scope="col" className="px-4 py-2 font-normal">Step</th>
               <th scope="col" className="px-2 py-2 text-right font-normal">Time</th>
@@ -31,7 +62,7 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
               <th scope="col" className="px-4 py-2 text-right font-normal">Cost</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-rule">
+          <tbody>
             {result.trace.map((step, i) => {
               const own = byNode.get(step.step) ?? [];
               // A node's calls are listed once, on its first step (a revision repeats "write").
@@ -67,7 +98,7 @@ export function TracePanel({ result, elapsedMs }: { result: AgentResult; elapsed
             })}
           </tbody>
           {usage && (
-            <tfoot className="border-t border-rule-strong text-ink-2">
+            <tfoot className="border-t-[3px] border-double border-rule-strong text-ink">
               <tr>
                 <th scope="row" className="px-4 py-2 font-medium">Total</th>
                 <td className="px-2 py-2 text-right font-mono whitespace-nowrap tabular-nums">

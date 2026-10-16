@@ -84,7 +84,7 @@ async def ask(
     async for item in c.run(question, "ana", GROUPS, make_deps):
         if isinstance(item, AgentResult):
             result = item
-        else:
+        elif isinstance(item, TraceEvent):
             events.append(item)
     assert result is not None
     return result, events, searcher

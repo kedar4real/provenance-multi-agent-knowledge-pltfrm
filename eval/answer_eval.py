@@ -357,10 +357,16 @@ def with_paraphrases(cases: list[GoldenCase]) -> list[GoldenCase]:
 
 
 def main(
-    limit: int | None, system: str, per_category: int | None = None, paraphrases: bool = False
+    limit: int | None,
+    system: str,
+    per_category: int | None = None,
+    paraphrases: bool = False,
+    category: str | None = None,
 ) -> None:
     load_dotenv(".env")
     cases = [GoldenCase.model_validate_json(x) for x in CASES.read_text("utf-8").splitlines()]
+    if category:
+        cases = [c for c in cases if c.category == category]
     if per_category:
         cases = first_per_category(cases, per_category)
     if limit:
@@ -376,8 +382,11 @@ def main(
     if paraphrases:
         share = sum(c.id.endswith("-para") for c in cases) / len(cases)
         report += f"\nParaphrased questions (cache test): {share:.0%} of the query set.\n"
-    (REPORTS / f"answers-{system}-{stamp}.json").write_text(json.dumps(rows, indent=2), "utf-8")
-    (REPORTS / f"answers-{system}-{stamp}.md").write_text(report, "utf-8")
+    # A one-category run is named apart, so "the latest answers-<system> report" that other
+    # evals read always means a whole run.
+    name = f"answers-{category}only-{system}-{stamp}" if category else f"answers-{system}-{stamp}"
+    (REPORTS / f"{name}.json").write_text(json.dumps(rows, indent=2), "utf-8")
+    (REPORTS / f"{name}.md").write_text(report, "utf-8")
     print("\n" + report)
 
 
@@ -387,8 +396,9 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int)
     parser.add_argument("--system", choices=["baseline", "agent", "controller"], default="baseline")
     parser.add_argument("--per-category", type=int, help="first N cases of each category")
+    parser.add_argument("--category", help="only this category (text, sql, cross, ...)")
     parser.add_argument(
         "--paraphrases", action="store_true", help="append the cache-eval paraphrases"
     )
     args = parser.parse_args()
-    main(args.limit, args.system, args.per_category, args.paraphrases)
+    main(args.limit, args.system, args.per_category, args.paraphrases, args.category)

@@ -1,51 +1,175 @@
 @import "tailwindcss";
 
-/* "Annotated filing": paper, ink, and one highlighter. Every color maps to a token below;
-   the highlighter (mark) is the only accent and only ever marks evidence or focus. */
+/* "The Ledger": an auditor's working papers. Cream ledger paper, green ledger ink, greenbar
+   rows for tabular evidence, and one red pencil. The red pencil is the only warm accent and
+   marks focus, the ledger margin, and problems; evidence is highlighted in a green wash. */
 @theme {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, sans-serif;
-  --font-serif: "Newsreader", ui-serif, Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-display: "Libre Caslon Display", "Source Serif 4", ui-serif, serif;
+  --font-mono: "DM Mono", ui-monospace, monospace;
 
-  --color-paper: oklch(0.985 0.005 85);
-  --color-sheet: oklch(1 0 0);
-  --color-inset: oklch(0.965 0.006 85);
-  --color-rule: oklch(0.905 0.008 85);
-  --color-rule-strong: oklch(0.82 0.01 85);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 22px;
 
-  --color-ink: oklch(0.23 0.012 260);
-  --color-ink-2: oklch(0.42 0.012 260);
-  --color-ink-3: oklch(0.55 0.01 260);
-  --color-ink-4: oklch(0.68 0.008 260);
+  /* Soft, layered shadows tinted with the ink colour, not grey. */
+  --shadow-card: 0 1px 2px oklch(0.25 0.04 165 / 0.06), 0 6px 18px -8px oklch(0.25 0.04 165 / 0.14);
+  --shadow-lift: 0 2px 4px oklch(0.25 0.04 165 / 0.06), 0 18px 36px -14px oklch(0.25 0.04 165 / 0.24);
+  --shadow-glow: 0 0 0 4px oklch(0.57 0.19 33 / 0.14), 0 10px 30px -12px oklch(0.57 0.19 33 / 0.35);
 
-  --color-mark: oklch(0.91 0.13 95);
-  --color-mark-strong: oklch(0.78 0.15 85);
-  --color-mark-ink: oklch(0.42 0.09 70);
+  --color-paper: oklch(0.972 0.014 92);
+  --color-sheet: oklch(0.99 0.008 92);
+  --color-inset: oklch(0.951 0.02 150);
+  --color-rule: oklch(0.875 0.02 140);
+  --color-rule-strong: oklch(0.74 0.03 150);
 
-  --color-danger: oklch(0.52 0.16 28);
-  --color-ok: oklch(0.55 0.11 150);
+  --color-ink: oklch(0.25 0.04 165);
+  --color-ink-2: oklch(0.38 0.035 165);
+  --color-ink-3: oklch(0.5 0.025 160);
+  --color-ink-4: oklch(0.62 0.02 150);
+
+  --color-mark: oklch(0.915 0.055 150);
+  --color-mark-strong: oklch(0.6 0.13 155);
+  --color-mark-ink: oklch(0.36 0.08 160);
+
+  --color-pencil: oklch(0.57 0.19 33);
+
+  /* Chart series (validated: scripts/validate_palette.js, light on #fdfbf5, dark on #18221f;
+     adjacent CVD dE >= 19, the first three also pass all-pairs). Ledger green, blue,
+     red pencil, violet. */
+  --color-series-1: #0b8a5c;
+  --color-series-2: #2f6fd0;
+  --color-series-3: #d9502b;
+  --color-series-4: #8a4fc4;
+  --color-chart-grid: oklch(0.91 0.012 140);
+  --color-chart-axis: oklch(0.78 0.02 150);
+  --color-danger: oklch(0.53 0.19 30);
+  --color-ok: oklch(0.45 0.1 160);
+  --color-warn: oklch(0.66 0.15 70);
+
+  --animate-rise: rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-stamp: stamp 420ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+  --animate-pop: pop 380ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+  --animate-slide-in: slide-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-sweep: sweep 1.4s ease-in-out infinite;
+  --animate-ping-soft: ping-soft 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-drift: drift 18s ease-in-out infinite alternate;
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(24px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(250%);
+    }
+  }
+  @keyframes ping-soft {
+    from {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    to {
+      transform: scale(1.9);
+      opacity: 0;
+    }
+  }
+  @keyframes drift {
+    from {
+      transform: translate(0, 0) scale(1);
+    }
+    to {
+      transform: translate(40px, -30px) scale(1.15);
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -50% 0;
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes stamp {
+    0% {
+      opacity: 0;
+      transform: rotate(-3deg) scale(1.7);
+    }
+    60% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 1;
+      transform: rotate(-3deg) scale(1);
+    }
+  }
 }
 
 @layer base {
   :root {
     color-scheme: light dark;
+    /* Paper grain: fractal noise at a few percent opacity. */
+    --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.2  0 0 0 0 0.15  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --color-paper: oklch(0.19 0.008 260);
-      --color-sheet: oklch(0.22 0.009 260);
-      --color-inset: oklch(0.17 0.008 260);
-      --color-rule: oklch(0.3 0.01 260);
-      --color-rule-strong: oklch(0.4 0.012 260);
-      --color-ink: oklch(0.94 0.006 85);
-      --color-ink-2: oklch(0.8 0.008 85);
-      --color-ink-3: oklch(0.66 0.008 85);
-      --color-ink-4: oklch(0.52 0.008 85);
-      --color-mark: oklch(0.45 0.09 85);
-      --color-mark-strong: oklch(0.72 0.13 85);
-      --color-mark-ink: oklch(0.86 0.1 90);
-      --color-danger: oklch(0.7 0.14 28);
-      --color-ok: oklch(0.72 0.11 150);
+      --color-paper: oklch(0.175 0.02 170);
+      --color-sheet: oklch(0.205 0.022 170);
+      --color-inset: oklch(0.155 0.02 170);
+      --color-rule: oklch(0.3 0.025 165);
+      --color-rule-strong: oklch(0.42 0.03 160);
+      --color-ink: oklch(0.93 0.02 95);
+      --color-ink-2: oklch(0.83 0.02 95);
+      --color-ink-3: oklch(0.69 0.02 120);
+      --color-ink-4: oklch(0.55 0.02 140);
+      --color-mark: oklch(0.37 0.07 155);
+      --color-mark-strong: oklch(0.72 0.13 155);
+      --color-mark-ink: oklch(0.88 0.08 150);
+      --color-pencil: oklch(0.7 0.17 35);
+      --color-danger: oklch(0.72 0.16 32);
+      --color-ok: oklch(0.77 0.12 158);
+      --color-warn: oklch(0.8 0.14 78);
+      --color-series-1: #26a874;
+      --color-series-2: #4f8ae6;
+      --color-series-3: #e8613a;
+      --color-series-4: #a578e0;
+      --color-chart-grid: oklch(0.28 0.02 165);
+      --color-chart-axis: oklch(0.4 0.025 160);
+      --shadow-card: 0 1px 2px oklch(0 0 0 / 0.3), 0 8px 20px -10px oklch(0 0 0 / 0.6);
+      --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.3), 0 20px 40px -14px oklch(0 0 0 / 0.75);
     }
   }
 
@@ -55,8 +179,10 @@
   }
   body {
     @apply bg-paper font-sans text-ink;
+    background-image: var(--grain);
     font-size: 15px;
     line-height: 1.5;
+    font-feature-settings: "ss01";
   }
   h1, h2, h3 {
     text-wrap: balance;
@@ -65,7 +191,7 @@
     text-wrap: pretty;
   }
   :focus-visible {
-    outline: 2px solid var(--color-mark-strong);
+    outline: 2px solid var(--color-pencil);
     outline-offset: 2px;
   }
   ::selection {
@@ -76,15 +202,156 @@
     *, *::before, *::after {
       transition-duration: 0.01ms !important;
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
     }
   }
 }
 
 /* A cited span: a highlighter stroke, not a box. */
 @utility evidence {
-  background: linear-gradient(transparent 12%, var(--color-mark) 12%, var(--color-mark) 88%, transparent 88%);
+  background: linear-gradient(transparent 10%, var(--color-mark) 10%, var(--color-mark) 90%, transparent 90%);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   padding-inline: 0.12em;
   color: var(--color-ink);
+}
+
+/* Small capitals for labels and running heads. */
+@utility smallcaps {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* The auditor's stamp: double-ruled, set at a slight angle, inked in its own color. */
+@utility stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  border: 2px solid currentColor;
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 3px;
+  padding: 0.3em 0.75em 0.25em;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transform: rotate(-3deg);
+  mix-blend-mode: multiply;
+  @media (prefers-color-scheme: dark) {
+    mix-blend-mode: normal;
+  }
+}
+
+/* Alternate rows tinted, like continuous-feed greenbar paper. */
+@utility greenbar {
+  & tbody tr:nth-child(even) {
+    background: var(--color-inset);
+  }
+}
+
+/* A dotted leader from a label to its figure, as in a table of contents. */
+@utility leader {
+  flex: 1 1 auto;
+  min-width: 1.5rem;
+  margin-inline: 0.5rem;
+  translate: 0 -0.3em;
+  border-bottom: 1px dotted var(--color-rule-strong);
+}
+
+/* A loading placeholder with a light sweeping across it. */
+@utility skeleton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+      100deg,
+      var(--color-inset) 30%,
+      color-mix(in oklch, var(--color-sheet) 70%, var(--color-mark)) 50%,
+      var(--color-inset) 70%
+    )
+    0 0 / 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Frosted glass for surfaces that float over the page. */
+@utility glass {
+  background: color-mix(in oklch, var(--color-sheet) 78%, transparent);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+}
+
+/* A card that rises a little toward the pointer. */
+@utility lift {
+  box-shadow: var(--shadow-card);
+  transition:
+    box-shadow 200ms ease,
+    transform 200ms ease,
+    border-color 200ms ease;
+  &:hover {
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-2px);
+  }
+}
+
+/* Icon in a tinted rounded tile. */
+@utility icon-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--color-mark) 55%, transparent);
+  color: var(--color-mark-ink);
+}
+
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes grow-up {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+:root {
+  --series-1: var(--color-series-1);
+  --series-2: var(--color-series-2);
+  --series-3: var(--color-series-3);
+  --series-4: var(--color-series-4);
+  --chart-grid: var(--color-chart-grid);
+  --chart-axis: var(--color-chart-axis);
+}
+
+/* Printing an answer (Export -> PDF): only the answer article, on white. */
+@media print {
+  body {
+    background: white !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  [data-print-root],
+  [data-print-root] * {
+    visibility: visible;
+  }
+  [data-print-root] {
+    position: absolute;
+    inset: 0 0 auto 0;
+    padding: 0 12mm;
+  }
+  [data-print-root] * {
+    animation: none !important;
+    box-shadow: none !important;
+  }
 }

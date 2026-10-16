@@ -2,6 +2,7 @@
 
   event: step     one per finished step (route, cache, plan, search, sql, write, verify,
                   revise, score, escalate, abstain)
+  event: delta    the answer's text as the model writes it (unverified; `reset` starts over)
   event: result   the final answer with its evidence, trace and controller report
   event: error    the run failed or was shed; details are logged, not sent
 
@@ -21,7 +22,7 @@ from psycopg import AsyncConnection
 from pydantic import BaseModel, Field
 
 from provenance.agents.graph import AgentDeps
-from provenance.agents.types import TraceEvent
+from provenance.agents.types import AnswerDelta, TraceEvent
 from provenance.api.deps import PrincipalDep, ResourcesDep, principal_transaction
 from provenance.api.errors import ApiError
 from provenance.api.lifespan import Resources
@@ -75,7 +76,11 @@ async def query(
             async for item in controller.run(
                 body.question, principal.name, principal.groups, make_deps
             ):
-                kind = "step" if isinstance(item, TraceEvent) else "result"
+                kind = (
+                    "step" if isinstance(item, TraceEvent)
+                    else "delta" if isinstance(item, AnswerDelta)
+                    else "result"
+                )  # fmt: skip
                 yield sse(kind, item.model_dump_json())
         except Overloaded as e:
             if controller.metrics:

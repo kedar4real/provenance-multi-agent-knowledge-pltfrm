@@ -1,0 +1,34 @@
+{
+  "shared_cases": 104,
+  "agent": {
+    "n": 104,
+    "correct": 0.7788461538461539,
+    "correct_or_partial": 0.8365384615384616,
+    "faithfulness": 0.9922644163150491,
+    "declined": 0.2403846153846154,
+    "tokens_per_q": 2198.144230769231,
+    "cost_per_q": 0.003975548076923077,
+    "llm_s_per_q": 13.780491346153847
+  },
+  "controller": {
+    "n": 104,
+    "correct": 0.7884615384615384,
+    "correct_or_partial": 0.8365384615384616,
+    "faithfulness": 0.9922644163150491,
+    "declined": 0.2403846153846154,
+    "tokens_per_q": 2385.451923076923,
+    "cost_per_q": 0.0038329326923076923,
+    "llm_s_per_q": 13.777726923076923
+  },
+  "cost_ratio": 0.964126862043695,
+  "token_ratio": 1.08521173892313,
+  "paraphrases": {
+    "n": 20,
+    "share_of_query_set": 0.16129032258064516,
+    "cache_hits": 11,
+    "correct": 0.75,
+    "agent_cost_estimated": 0.048163,
+    "controller_cost": 0.035717
+  },
+  "cost_ratio_with_paraphrases": 0.9409081062345652
+}

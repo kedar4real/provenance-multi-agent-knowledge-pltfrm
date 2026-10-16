@@ -8,6 +8,7 @@ import openai
 from openai import AsyncOpenAI
 
 from provenance.llm.errors import ProviderRejected, ProviderUnavailable, RateLimited
+from provenance.llm.streaming import TokenSink, token_sink
 from provenance.llm.types import ChatRequest, ChatResponse, TokenLogprob, ToolCall, Usage
 
 _DURATION = re.compile(r"^\s*([\d.]+)s\s*$")
@@ -39,6 +40,10 @@ class OpenAICompatProvider:
 
     async def complete(self, request: ChatRequest, model: str) -> ChatResponse:
         started = time.perf_counter()
+        sink = token_sink.get()
+        # Only free text streams; tool calls, JSON and logprobs are parsed whole.
+        if sink is not None and not (request.tools or request.json_mode or request.logprobs):
+            return await self._stream(request, model, sink, started)
         try:
             raw = await self._client.chat.completions.create(**_payload(request, model))
         except openai.RateLimitError as e:
@@ -50,6 +55,49 @@ class OpenAICompatProvider:
                 raise ProviderUnavailable(self.name, f"HTTP {e.status_code}") from e
             raise ProviderRejected(self.name, e.status_code, _error_message(e.response)) from e
         return _parse(raw, self.name, model, (time.perf_counter() - started) * 1000)
+
+    async def _stream(
+        self, request: ChatRequest, model: str, sink: TokenSink, started: float
+    ) -> ChatResponse:
+        payload = {**_payload(request, model), "stream": True}
+        payload["stream_options"] = {"include_usage": True}
+        sink.reset()
+        parts: list[str] = []
+        usage = Usage()
+        try:
+            stream = await self._client.chat.completions.create(**payload)
+            async for chunk in stream:
+                for choice in chunk.choices:
+                    text = choice.delta.content if choice.delta else None
+                    if text:
+                        parts.append(text)
+                        sink.delta(text)
+                if chunk.usage is not None:
+                    details = getattr(chunk.usage, "prompt_tokens_details", None)
+                    usage = Usage(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                        cached_input_tokens=(getattr(details, "cached_tokens", None) or 0)
+                        if details
+                        else 0,
+                    )
+        except openai.RateLimitError as e:
+            raise RateLimited(self.name, _retry_after_s(e.response)) from e
+        except (openai.APIConnectionError, openai.InternalServerError) as e:
+            raise ProviderUnavailable(self.name, type(e).__name__) from e
+        except openai.APIStatusError as e:
+            if e.status_code >= 500:
+                raise ProviderUnavailable(self.name, f"HTTP {e.status_code}") from e
+            raise ProviderRejected(self.name, e.status_code, _error_message(e.response)) from e
+        except openai.APIError as e:  # the stream broke off mid-answer
+            raise ProviderUnavailable(self.name, type(e).__name__) from e
+        return ChatResponse(
+            content="".join(parts),
+            provider=self.name,
+            model=model,
+            usage=usage,
+            latency_ms=(time.perf_counter() - started) * 1000,
+        )
 
 
 def _payload(request: ChatRequest, model: str) -> dict[str, Any]:
