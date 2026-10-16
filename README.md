@@ -109,8 +109,6 @@ flowchart LR
 ```
 
 Design decisions and the alternatives considered are in [docs/decisions.md](docs/decisions.md).
-Problems encountered during the build, and how they were diagnosed, are in
-[docs/build-log.md](docs/build-log.md).
 
 ## Results
 
@@ -131,8 +129,7 @@ and no eval was tuned toward a target number.
 Reranking gives the largest gain (Recall@1 from 0.61 to 0.80). Query rewriting adds a smaller
 improvement at the cost of one extra model call. The first three rows come from
 [retrieval-20261005-0745](eval/reports/retrieval-20261005-0745.md), and the last from
-[retrieval-20261005-1220](eval/reports/retrieval-20261005-1220.md), after the rewrite fixes
-described in the build log. The reranker's top score also separates answerable from
+[retrieval-20261005-1220](eval/reports/retrieval-20261005-1220.md), after fixes to the query rewrite. The reranker's top score also separates answerable from
 unanswerable questions: for unanswerable ones the median top score is about 0.12.
 
 A CI gate reruns this evaluation on every pull request that touches retrieval, and fails if
