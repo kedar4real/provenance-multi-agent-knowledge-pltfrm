@@ -20,7 +20,7 @@ from provenance.security.pii import RedactedText, redact
 
 CANDIDATES_PER_RETRIEVER = 50
 # Measured: reranking 30 passages took 4.6s on 16 CPU threads, 20 took 3.6s, same top 5.
-RERANK_POOL = 20
+RERANK_POOL = 3
 
 _HITS = """
 SELECT c.id, c.document_id, co.ticker, co.name, d.fiscal_year, c.section, s.title, c.text,
